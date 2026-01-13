@@ -24,10 +24,11 @@ from tools.data_tools import get_enriched_pnr, get_all_reservations, get_custome
 from agents.state import create_initial_state, OfferDecision
 from agents.customer_intelligence import CustomerIntelligenceAgent
 from agents.flight_optimization import FlightOptimizationAgent
-from agents.offer_orchestration import OfferOrchestrationAgent
-from agents.personalization import PersonalizationAgent
+from agents.offer_orchestration import OfferOrchestrationAgent, ORCHESTRATION_SYSTEM_PROMPT
+from agents.personalization import PersonalizationAgent, PERSONALIZATION_SYSTEM_PROMPT
 from agents.channel_timing import ChannelTimingAgent
 from agents.measurement_learning import MeasurementLearningAgent
+from agents.llm_service import get_llm_provider_name, is_llm_available
 
 
 app = FastAPI(
@@ -148,6 +149,39 @@ agents = {
     "measurement": MeasurementLearningAgent()
 }
 
+# Default prompts for LLM agents (for display and editing)
+DEFAULT_PROMPTS = {
+    "offer_orchestration": {
+        "system_prompt": ORCHESTRATION_SYSTEM_PROMPT,
+        "type": "llm",
+        "description": "Strategic reasoning about which offer to select"
+    },
+    "personalization": {
+        "system_prompt": PERSONALIZATION_SYSTEM_PROMPT,
+        "type": "llm",
+        "description": "Generates personalized messaging for the offer"
+    },
+    "customer_intelligence": {
+        "type": "rules",
+        "description": "Rules-based eligibility checks"
+    },
+    "flight_optimization": {
+        "type": "rules",
+        "description": "Rules-based inventory analysis"
+    },
+    "channel_timing": {
+        "type": "rules",
+        "description": "Rules-based channel selection"
+    },
+    "measurement": {
+        "type": "rules",
+        "description": "Deterministic A/B assignment"
+    }
+}
+
+# Store for custom prompts (in production, this would be in a database)
+custom_prompts: Dict[str, str] = {}
+
 
 # ============ Helper Functions ============
 
@@ -256,6 +290,81 @@ async def health_check():
 async def get_agents():
     """Get agent configuration and metadata"""
     return {"agents": AGENT_CONFIG}
+
+
+@app.get("/api/llm-status")
+async def get_llm_status():
+    """Get LLM configuration status"""
+    return {
+        "llm_available": is_llm_available(),
+        "provider": get_llm_provider_name()
+    }
+
+
+@app.get("/api/agents/{agent_id}/prompt")
+async def get_agent_prompt(agent_id: str):
+    """Get the prompt configuration for an agent"""
+    if agent_id not in DEFAULT_PROMPTS:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    prompt_config = DEFAULT_PROMPTS[agent_id]
+
+    # If it's a rules-based agent, return that info
+    if prompt_config.get("type") == "rules":
+        return {
+            "agent_id": agent_id,
+            "type": "rules",
+            "description": prompt_config["description"],
+            "editable": False
+        }
+
+    # For LLM agents, return the prompt
+    return {
+        "agent_id": agent_id,
+        "type": "llm",
+        "description": prompt_config["description"],
+        "system_prompt": custom_prompts.get(agent_id, prompt_config.get("system_prompt", "")),
+        "is_custom": agent_id in custom_prompts,
+        "default_prompt": prompt_config.get("system_prompt", ""),
+        "editable": True,
+        "llm_provider": get_llm_provider_name()
+    }
+
+
+class PromptUpdate(BaseModel):
+    system_prompt: str
+
+
+@app.put("/api/agents/{agent_id}/prompt")
+async def update_agent_prompt(agent_id: str, update: PromptUpdate):
+    """Update the prompt for an LLM agent"""
+    if agent_id not in DEFAULT_PROMPTS:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    prompt_config = DEFAULT_PROMPTS[agent_id]
+    if prompt_config.get("type") != "llm":
+        raise HTTPException(status_code=400, detail=f"Agent {agent_id} is rules-based, not LLM")
+
+    custom_prompts[agent_id] = update.system_prompt
+
+    return {
+        "agent_id": agent_id,
+        "status": "updated",
+        "message": f"Custom prompt saved for {agent_id}"
+    }
+
+
+@app.delete("/api/agents/{agent_id}/prompt")
+async def reset_agent_prompt(agent_id: str):
+    """Reset an agent's prompt to default"""
+    if agent_id in custom_prompts:
+        del custom_prompts[agent_id]
+
+    return {
+        "agent_id": agent_id,
+        "status": "reset",
+        "message": f"Prompt reset to default for {agent_id}"
+    }
 
 
 @app.get("/api/pnrs", response_model=List[PNRSummary])

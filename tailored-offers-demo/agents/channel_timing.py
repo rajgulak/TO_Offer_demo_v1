@@ -46,7 +46,6 @@ class ChannelTimingAgent:
         Returns updated state with channel and timing decisions.
         """
         reasoning_parts = []
-        reasoning_parts.append(f"=== {self.name} ===")
 
         # Check if we should send offer
         if not state.get("should_send_offer", False):
@@ -67,10 +66,36 @@ class ChannelTimingAgent:
         timezone = customer.get("home_timezone", "America/Chicago")
         hours_to_departure = reservation.get("hours_to_departure", 72)
 
-        reasoning_parts.append("Evaluating channels:")
+        # ========== DATA USED SECTION ==========
+        reasoning_parts.append("📊 DATA USED (from MCP Tools):")
+        reasoning_parts.append("")
+        reasoning_parts.append("┌─ get_consent_status() → Preferences Database")
+        reasoning_parts.append(f"│  • Email Consent: {'✓ Yes' if consent.get('email') else '✗ No'}")
+        reasoning_parts.append(f"│  • Push Consent: {'✓ Yes' if consent.get('push') else '✗ No'}")
+        reasoning_parts.append("│")
+        reasoning_parts.append("├─ get_engagement_history() → Analytics Platform")
+        reasoning_parts.append(f"│  • App Installed: {'✓ Yes' if engagement.get('app_installed') else '✗ No'}")
+        reasoning_parts.append(f"│  • Email Open Rate: {engagement.get('email_open_rate', 0.22):.0%}")
+        reasoning_parts.append(f"│  • Push Open Rate: {engagement.get('push_open_rate', 0.45):.0%}")
+        reasoning_parts.append(f"│  • Preferred Hours: {engagement.get('preferred_engagement_hours', [9, 12, 18])}")
+        reasoning_parts.append(f"│  • Last App Open: {engagement.get('last_app_open', 'N/A')}")
+        reasoning_parts.append("│")
+        reasoning_parts.append("└─ Trip Context")
+        reasoning_parts.append(f"   • Hours to Departure: {hours_to_departure}")
+        reasoning_parts.append(f"   • Customer Timezone: {timezone}")
+
+        # ========== ANALYSIS SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
+        reasoning_parts.append("🔍 ANALYSIS:")
+        reasoning_parts.append("")
+        reasoning_parts.append("   Scoring each available channel:")
 
         # Evaluate each channel
         channel_scores = {}
+
+        reasoning_parts.append("")
 
         # Push notification
         if consent.get("push", False) and engagement.get("app_installed", False):
@@ -82,12 +107,16 @@ class ChannelTimingAgent:
                 engagement_bonus=0.1 if push_open_rate > 0.5 else 0
             )
             channel_scores["push"] = push_score
-            reasoning_parts.append(
-                f"  - Push: AVAILABLE | Open rate: {push_open_rate:.0%} | Score: {push_score:.2f}"
-            )
+            reasoning_parts.append(f"   📱 Push Notification: AVAILABLE")
+            reasoning_parts.append(f"      • Customer open rate: {push_open_rate:.0%}")
+            reasoning_parts.append(f"      • Urgency bonus: {'HIGH' if hours_to_departure <= 48 else 'MEDIUM'} (departure in {hours_to_departure}h)")
+            reasoning_parts.append(f"      • Score: {push_score:.2f}")
         else:
-            reason = "no app" if not engagement.get("app_installed") else "no consent"
-            reasoning_parts.append(f"  - Push: NOT AVAILABLE ({reason})")
+            reason = "no app installed" if not engagement.get("app_installed") else "no push consent"
+            reasoning_parts.append(f"   📱 Push Notification: NOT AVAILABLE")
+            reasoning_parts.append(f"      • Reason: {reason}")
+
+        reasoning_parts.append("")
 
         # Email
         if consent.get("email", False):
@@ -99,11 +128,15 @@ class ChannelTimingAgent:
                 engagement_bonus=0.1 if email_open_rate > 0.3 else 0
             )
             channel_scores["email"] = email_score
-            reasoning_parts.append(
-                f"  - Email: AVAILABLE | Open rate: {email_open_rate:.0%} | Score: {email_score:.2f}"
-            )
+            reasoning_parts.append(f"   📧 Email: AVAILABLE")
+            reasoning_parts.append(f"      • Customer open rate: {email_open_rate:.0%}")
+            reasoning_parts.append(f"      • Note: Email less effective for urgent offers")
+            reasoning_parts.append(f"      • Score: {email_score:.2f}")
         else:
-            reasoning_parts.append("  - Email: NOT AVAILABLE (no consent)")
+            reasoning_parts.append(f"   📧 Email: NOT AVAILABLE")
+            reasoning_parts.append(f"      • Reason: no email consent")
+
+        reasoning_parts.append("")
 
         # In-app (only if app recently used)
         last_app_open = engagement.get("last_app_open")
@@ -117,12 +150,19 @@ class ChannelTimingAgent:
                 engagement_bonus=0.2
             )
             channel_scores["in_app"] = in_app_score
-            reasoning_parts.append(
-                f"  - In-App: AVAILABLE | Recent activity | Score: {in_app_score:.2f}"
-            )
+            reasoning_parts.append(f"   📲 In-App Banner: AVAILABLE")
+            reasoning_parts.append(f"      • Last app open: {last_app_open}")
+            reasoning_parts.append(f"      • Highest engagement rate (~65% visibility)")
+            reasoning_parts.append(f"      • Score: {in_app_score:.2f}")
 
         if not channel_scores:
-            reasoning_parts.append("\nNo channels available!")
+            reasoning_parts.append("")
+            reasoning_parts.append("─" * 50)
+            reasoning_parts.append("")
+            reasoning_parts.append("❌ DECISION: NO CHANNELS AVAILABLE")
+            reasoning_parts.append("")
+            reasoning_parts.append("📍 WHY: Customer has not consented to any marketing channel")
+            reasoning_parts.append("   or does not have the app installed.")
             return {
                 "selected_channel": "",
                 "send_time": "",
@@ -141,10 +181,6 @@ class ChannelTimingAgent:
         if len(sorted_channels) > 1:
             backup_channel = sorted_channels[1][0]
 
-        reasoning_parts.append(f"\nPrimary channel: {primary_channel.upper()}")
-        if backup_channel:
-            reasoning_parts.append(f"Backup channel: {backup_channel}")
-
         # Determine optimal send time
         preferred_hours = engagement.get("preferred_engagement_hours", [9, 12, 18])
         send_time, time_reasoning = self._calculate_send_time(
@@ -153,11 +189,56 @@ class ChannelTimingAgent:
             timezone=timezone
         )
 
-        reasoning_parts.append(f"\nTiming analysis:")
-        reasoning_parts.append(f"  - Customer's preferred hours: {preferred_hours}")
-        reasoning_parts.append(f"  - Hours to departure: {hours_to_departure}")
-        reasoning_parts.append(f"  - {time_reasoning}")
-        reasoning_parts.append(f"  - Selected send time: {send_time}")
+        # ========== DECISION SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
+
+        channel_names = {"push": "Push Notification", "email": "Email", "in_app": "In-App Banner"}
+        reasoning_parts.append(f"✅ DECISION: SEND VIA {channel_names.get(primary_channel, primary_channel).upper()}")
+        reasoning_parts.append(f"   When: {send_time}")
+        reasoning_parts.append("")
+        reasoning_parts.append("📍 IN SIMPLE TERMS:")
+        if primary_channel == "push":
+            reasoning_parts.append(f"   We're sending a push notification because:")
+            reasoning_parts.append(f"   • This customer opens {engagement.get('push_open_rate', 0.45):.0%} of push messages (good!)")
+            if hours_to_departure <= 48:
+                reasoning_parts.append("   • The flight is soon - push gets attention FAST")
+            reasoning_parts.append("   • They have the app and notifications enabled")
+        elif primary_channel == "email":
+            reasoning_parts.append(f"   We're sending an email because:")
+            reasoning_parts.append(f"   • This customer opens {engagement.get('email_open_rate', 0.22):.0%} of emails")
+            reasoning_parts.append("   • Email lets us show all the upgrade details")
+            reasoning_parts.append("   • They can read it when convenient")
+        elif primary_channel == "in_app":
+            reasoning_parts.append(f"   We're showing an in-app banner because:")
+            reasoning_parts.append("   • Customer uses the app regularly")
+            reasoning_parts.append("   • In-app messages have the highest response rate")
+            reasoning_parts.append("   • They'll see it next time they check their trip")
+
+        reasoning_parts.append("")
+        reasoning_parts.append(f"📍 TIMING: {send_time}")
+        if "NOW" in send_time:
+            reasoning_parts.append("   Sending immediately - flight is coming up soon!")
+        else:
+            reasoning_parts.append(f"   This customer is most active around: {preferred_hours}")
+            reasoning_parts.append("   We'll send when they're likely to see it.")
+
+        if backup_channel:
+            reasoning_parts.append("")
+            reasoning_parts.append(f"📍 BACKUP PLAN: {channel_names.get(backup_channel, backup_channel)}")
+            reasoning_parts.append("   If the first message doesn't get through, try this channel.")
+
+        reasoning_parts.append("")
+        reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
+        reasoning_parts.append("   A simple system would just blast everyone with email.")
+        reasoning_parts.append("")
+        reasoning_parts.append("   This agent figured out the BEST way to reach this person:")
+        reasoning_parts.append("   • Checked what channels they've opted into")
+        reasoning_parts.append("   • Looked at their past behavior (what do they respond to?)")
+        reasoning_parts.append("   • Picked the time when they're most likely to engage")
+        reasoning_parts.append("")
+        reasoning_parts.append("   Right message + Right channel + Right time = More sales! 🎯")
 
         full_reasoning = "\n".join(reasoning_parts)
 

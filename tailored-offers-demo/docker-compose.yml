@@ -10,6 +10,12 @@ services:
     volumes:
       # Mount data for easy updates without rebuild
       - ./data:/app/data:ro
+    environment:
+      # LLM Configuration - set one of these for real LLM reasoning
+      # If neither is set, demo runs in mock mode with simulated responses
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TAILORED_OFFERS_LLM_PROVIDER=${TAILORED_OFFERS_LLM_PROVIDER:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 10s

@@ -69,7 +69,6 @@ class MeasurementLearningAgent:
         Returns updated state with measurement configuration.
         """
         reasoning_parts = []
-        reasoning_parts.append(f"=== {self.name} ===")
 
         # Check if we should send offer
         if not state.get("should_send_offer", False):
@@ -84,6 +83,51 @@ class MeasurementLearningAgent:
         ml_scores = state.get("ml_scores", {})
         customer_segment = state.get("customer_segment", "unknown")
 
+        # ========== DATA USED SECTION ==========
+        reasoning_parts.append("📊 DATA USED (from MCP Tools):")
+        reasoning_parts.append("")
+        reasoning_parts.append("┌─ assign_experiment() → Experiment Platform")
+        reasoning_parts.append(f"│  • Active Experiment: {self.EXPERIMENT_CONFIG['current_experiment']}")
+        reasoning_parts.append("│  • Experiment Groups:")
+        for group, config in self.EXPERIMENT_CONFIG["groups"].items():
+            reasoning_parts.append(f"│    - {group}: {config['allocation']:.0%} allocation ({config['description']})")
+        reasoning_parts.append("│")
+        reasoning_parts.append("├─ Customer Context (from Previous Agents)")
+        reasoning_parts.append(f"│  • Segment: {customer_segment}")
+
+        # Get ML confidence
+        max_confidence = 0
+        if ml_scores:
+            for scores in ml_scores.get("propensity_scores", {}).values():
+                if isinstance(scores, dict):
+                    conf = scores.get("confidence", 0)
+                    if conf > max_confidence:
+                        max_confidence = conf
+        reasoning_parts.append(f"│  • ML Model Confidence: {max_confidence:.0%}")
+        reasoning_parts.append("│")
+        reasoning_parts.append("└─ Current Experiment Performance")
+        for group, metrics in self.EXPERIMENT_CONFIG["performance"].items():
+            reasoning_parts.append(f"   • {group}: {metrics['conversion_rate']:.1%} conversion, ${metrics['avg_revenue']} avg revenue")
+
+        # ========== ANALYSIS SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
+        reasoning_parts.append("🔍 ANALYSIS:")
+        reasoning_parts.append("")
+        reasoning_parts.append("   A/B Test Assignment Logic:")
+        reasoning_parts.append("")
+        reasoning_parts.append("   ┌────────────────────────────────────────────────┐")
+        reasoning_parts.append("   │  A/B testing helps us LEARN which strategies  │")
+        reasoning_parts.append("   │  work best by comparing different approaches: │")
+        reasoning_parts.append("   │                                                │")
+        reasoning_parts.append("   │  • Control: Baseline rules-only approach      │")
+        reasoning_parts.append("   │  • Test v1: ML model baseline                 │")
+        reasoning_parts.append("   │  • Test v2: Enhanced ML model                 │")
+        reasoning_parts.append("   │  • Exploration: Learning for new segments     │")
+        reasoning_parts.append("   └────────────────────────────────────────────────┘")
+        reasoning_parts.append("")
+
         # Determine experiment assignment
         experiment_group, assignment_reason = self._assign_experiment_group(
             customer=customer,
@@ -91,9 +135,16 @@ class MeasurementLearningAgent:
             customer_segment=customer_segment
         )
 
-        reasoning_parts.append(f"Experiment: {self.EXPERIMENT_CONFIG['current_experiment']}")
-        reasoning_parts.append(f"Assignment: {experiment_group}")
-        reasoning_parts.append(f"Reason: {assignment_reason}")
+        reasoning_parts.append(f"   Assignment Decision:")
+        if max_confidence < 0.5:
+            reasoning_parts.append(f"   • ML confidence is LOW ({max_confidence:.0%})")
+            reasoning_parts.append("   • → Assigning to EXPLORATION to gather learning data")
+        elif customer_segment == "new_customer":
+            reasoning_parts.append("   • Customer is in NEW segment")
+            reasoning_parts.append("   • → Assigning to EXPLORATION to build model for this segment")
+        else:
+            reasoning_parts.append(f"   • Good ML confidence ({max_confidence:.0%})")
+            reasoning_parts.append(f"   • → Random assignment based on configured allocations")
 
         # Generate tracking ID
         tracking_id = self._generate_tracking_id(
@@ -102,17 +153,41 @@ class MeasurementLearningAgent:
             group=experiment_group
         )
 
-        reasoning_parts.append(f"Tracking ID: {tracking_id}")
+        # ========== DECISION SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
 
-        # Add performance context
         perf = self.EXPERIMENT_CONFIG["performance"].get(experiment_group, {})
-        reasoning_parts.append(f"\nExperiment Performance (current):")
-        for group, metrics in self.EXPERIMENT_CONFIG["performance"].items():
-            marker = " ← assigned" if group == experiment_group else ""
-            reasoning_parts.append(
-                f"  - {group}: {metrics['conversion_rate']:.1%} conversion, "
-                f"${metrics['avg_revenue']} avg revenue{marker}"
-            )
+        reasoning_parts.append(f"✅ DECISION: PUT IN '{experiment_group.upper()}' TEST GROUP")
+        reasoning_parts.append("")
+        reasoning_parts.append("📍 IN SIMPLE TERMS:")
+        reasoning_parts.append(f"   We're testing different strategies to find what works best.")
+        reasoning_parts.append(f"   This customer goes into the '{experiment_group}' group.")
+        reasoning_parts.append("")
+        if experiment_group == "exploration":
+            reasoning_parts.append("   Why exploration? We don't have enough data on customers like this.")
+            reasoning_parts.append("   By trying different offers, we'll LEARN what works for them.")
+        elif experiment_group == "test_model_v2":
+            reasoning_parts.append("   Why v2? Our new ML model is performing better.")
+            reasoning_parts.append("   We're testing it on more customers to confirm.")
+        elif experiment_group == "control":
+            reasoning_parts.append("   Why control? We need a baseline to compare against.")
+            reasoning_parts.append("   This helps us prove the AI is actually better.")
+
+        reasoning_parts.append("")
+        reasoning_parts.append("📍 HOW WE'LL MEASURE SUCCESS:")
+        reasoning_parts.append(f"   Tracking ID: {tracking_id}")
+        reasoning_parts.append("")
+        reasoning_parts.append("   When the customer gets this offer, we'll track:")
+        reasoning_parts.append("   • Did they open the message?")
+        reasoning_parts.append("   • Did they click to learn more?")
+        reasoning_parts.append("   • Did they actually BUY the upgrade?")
+        reasoning_parts.append("   • How much revenue did we make?")
+        reasoning_parts.append("")
+        reasoning_parts.append(f"   Expected results for this group:")
+        reasoning_parts.append(f"   • ~{perf.get('conversion_rate', 0):.1%} will buy (based on past data)")
+        reasoning_parts.append(f"   • ~${perf.get('avg_revenue', 0)} average revenue per customer")
 
         # Add learning recommendations
         recommendations = self._generate_recommendations(
@@ -122,9 +197,22 @@ class MeasurementLearningAgent:
         )
 
         if recommendations:
-            reasoning_parts.append(f"\nLearning Recommendations:")
+            reasoning_parts.append("")
+            reasoning_parts.append("📍 WHAT WE'RE LEARNING:")
             for rec in recommendations:
-                reasoning_parts.append(f"  - {rec}")
+                reasoning_parts.append(f"   • {rec}")
+
+        reasoning_parts.append("")
+        reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
+        reasoning_parts.append("   Most systems just send offers and hope for the best.")
+        reasoning_parts.append("")
+        reasoning_parts.append("   This agent sets up SCIENTIFIC TESTING:")
+        reasoning_parts.append("   • Split customers into test groups")
+        reasoning_parts.append("   • Try different strategies")
+        reasoning_parts.append("   • Measure what actually works")
+        reasoning_parts.append("   • Feed results back to improve the ML model")
+        reasoning_parts.append("")
+        reasoning_parts.append("   This is how we keep getting BETTER over time! 📈")
 
         full_reasoning = "\n".join(reasoning_parts)
 

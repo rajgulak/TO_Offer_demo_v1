@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { AgentResult } from '../types';
+import { PromptEditor } from './PromptEditor';
 
 interface AgentConfig {
   id: string;
@@ -50,9 +52,39 @@ const agentTools: Record<string, { tool: string; system: string }[]> = {
   ],
 };
 
+// Agent execution mode - LLM-powered vs Rules-based
+const agentMode: Record<string, { type: 'llm' | 'rules'; description: string }> = {
+  customer_intelligence: {
+    type: 'rules',
+    description: 'Deterministic eligibility checks'
+  },
+  flight_optimization: {
+    type: 'rules',
+    description: 'Inventory analysis with business rules'
+  },
+  offer_orchestration: {
+    type: 'llm',
+    description: 'LLM reasoning for strategic offer selection'
+  },
+  personalization: {
+    type: 'llm',
+    description: 'GenAI for personalized message creation'
+  },
+  channel_timing: {
+    type: 'rules',
+    description: 'Rules-based channel selection'
+  },
+  measurement: {
+    type: 'rules',
+    description: 'Deterministic A/B assignment'
+  },
+};
+
 export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSelectTab }: Props) {
   const selectedResult = selectedAgentTab ? agentResults[selectedAgentTab] : null;
   const selectedAgent = agents.find(a => a.id === selectedAgentTab);
+  const selectedMode = selectedAgentTab ? agentMode[selectedAgentTab] : null;
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -62,6 +94,7 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
           const result = agentResults[agent.id];
           const hasResult = !!result;
           const isSelected = selectedAgentTab === agent.id;
+          const mode = agentMode[agent.id];
 
           return (
             <button
@@ -81,6 +114,9 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
             >
               <span>{icons[agent.icon]}</span>
               <span>{agent.short_name}</span>
+              {mode?.type === 'llm' && (
+                <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">AI</span>
+              )}
               {result?.status === 'complete' && (
                 <span className="text-emerald-500">✓</span>
               )}
@@ -104,8 +140,18 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
             {/* Header */}
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">
+                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   {icons[selectedAgent?.icon || '']} {selectedResult.agent_name}
+                  {selectedMode?.type === 'llm' && (
+                    <span className="text-sm bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                      🧠 LLM-Powered
+                    </span>
+                  )}
+                  {selectedMode?.type === 'rules' && (
+                    <span className="text-sm bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                      ⚡ Rules-Based
+                    </span>
+                  )}
                 </h3>
                 <p className="text-sm text-gray-500">{selectedAgent?.description}</p>
               </div>
@@ -122,6 +168,51 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
                 </div>
               </div>
             </div>
+
+            {/* Agent Mode Info */}
+            {selectedMode && (
+              <div className={`rounded-lg p-3 ${
+                selectedMode.type === 'llm'
+                  ? 'bg-blue-50 border border-blue-200'
+                  : 'bg-slate-50 border border-slate-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">
+                    {selectedMode.type === 'llm' ? '🧠' : '⚡'}
+                  </span>
+                  <div>
+                    <div className={`text-sm font-semibold ${
+                      selectedMode.type === 'llm' ? 'text-blue-700' : 'text-slate-700'
+                    }`}>
+                      {selectedMode.type === 'llm' ? 'LLM-Powered Agent' : 'Rules-Based Agent'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {selectedMode.description}
+                    </div>
+                  </div>
+                  {selectedMode.type === 'llm' && (
+                    <button
+                      onClick={() => setShowPromptEditor(!showPromptEditor)}
+                      className={`ml-auto text-xs px-3 py-1.5 rounded transition-colors ${
+                        showPromptEditor
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                      }`}
+                    >
+                      {showPromptEditor ? '✓ Viewing Prompt' : '📝 View/Edit Prompt'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Prompt Editor for LLM agents */}
+            {selectedMode?.type === 'llm' && showPromptEditor && selectedAgentTab && (
+              <PromptEditor
+                agentId={selectedAgentTab}
+                agentName={selectedResult?.agent_name || ''}
+              />
+            )}
 
             {/* MCP Tools Used */}
             {selectedAgentTab && agentTools[selectedAgentTab] && (
@@ -145,13 +236,21 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
             {/* Reasoning */}
             <div>
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                🧠 Agent Reasoning (This is what differentiates from rule engine)
+                {selectedMode?.type === 'llm'
+                  ? '🧠 LLM Reasoning (Dynamic, context-aware analysis)'
+                  : '⚡ Rules Execution (Deterministic logic)'}
               </div>
               <div className="bg-slate-800 rounded-lg p-4 max-h-64 overflow-y-auto custom-scrollbar">
                 <pre className="reasoning-display text-slate-100">
                   {selectedResult.reasoning || 'No reasoning available'}
                 </pre>
               </div>
+              {selectedMode?.type === 'llm' && (
+                <div className="mt-2 text-xs text-blue-600 flex items-center gap-1">
+                  <span>💡</span>
+                  <span>This reasoning was generated by an LLM, not hard-coded rules</span>
+                </div>
+              )}
             </div>
 
             {/* Outputs */}

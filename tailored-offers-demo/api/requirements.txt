@@ -2,3 +2,13 @@ fastapi>=0.109.0
 uvicorn>=0.27.0
 sse-starlette>=1.8.0
 pydantic>=2.0.0
+
+# LangChain dependencies (for agents)
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-anthropic>=0.3.0
+langchain-openai>=0.2.0
+
+# Utilities
+python-dotenv>=1.0.0

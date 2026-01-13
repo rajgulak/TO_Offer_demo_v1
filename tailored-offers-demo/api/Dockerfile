@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 # Copy requirements first for caching
 COPY api/requirements.txt ./api/
-RUN pip install --no-cache-dir -r api/requirements.txt
+RUN pip install --no-cache-dir --timeout 120 -r api/requirements.txt
 
 # Copy the rest of the application
 COPY agents/ ./agents/

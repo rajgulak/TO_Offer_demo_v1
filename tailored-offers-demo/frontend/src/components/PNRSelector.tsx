@@ -24,32 +24,32 @@ const scenarioColors: Record<string, string> = {
   'Suppressed': 'bg-red-100 text-red-700',
 };
 
-// What each scenario demonstrates about agent capabilities
+// What each scenario demonstrates about agent capabilities (in plain English!)
 const scenarioDescriptions: Record<string, { demonstrates: string; expectedOutcome: string; keyInsight: string }> = {
   'ABC123': {
-    demonstrates: 'Full Happy Path - All 6 agents process sequentially',
-    expectedOutcome: '✅ Business upgrade @ $171 via IN_APP',
-    keyInsight: 'EV calculation: Business ($122 EV) > MCE ($29 EV)',
+    demonstrates: 'A typical customer who should get an upgrade offer',
+    expectedOutcome: '✅ Offer Business Class for $171 via app notification',
+    keyInsight: 'Agent did the math: 40% chance × $171 = $68 avg revenue beats 60% chance × $89 = $53 for cheaper MCE',
   },
   'XYZ789': {
-    demonstrates: 'Behavioral Adaptation - Agent adjusts price based on past behavior',
-    expectedOutcome: '✅ Business upgrade @ $165 (reduced from $179)',
-    keyInsight: 'Previous offer opened but not converted → lower price',
+    demonstrates: 'Customer who looked at our offer before but didn\'t buy',
+    expectedOutcome: '✅ Offer Business Class for $165 (discounted!)',
+    keyInsight: 'Agents noticed they opened our last offer but didn\'t buy → try a lower price this time',
   },
   'LMN456': {
-    demonstrates: 'High-Value Customer Treatment - Premium messaging & channel',
-    expectedOutcome: '✅ Business upgrade @ $770 via EMAIL',
-    keyInsight: 'Executive Platinum gets exclusive tone, respects channel preference',
+    demonstrates: 'Our most valuable customer - needs VIP treatment',
+    expectedOutcome: '✅ Offer Business Class for $770 via email',
+    keyInsight: 'Executive Platinum members get a premium message tone and their preferred contact method',
   },
   'DEF321': {
-    demonstrates: 'Cold Start + Inventory Constraint - Graceful handling',
-    expectedOutcome: '❌ NO OFFER (Business sold out, MCE insufficient)',
-    keyInsight: 'Agent protects against offering unavailable inventory',
+    demonstrates: 'New customer + no seats available - what happens?',
+    expectedOutcome: '❌ NO OFFER sent',
+    keyInsight: 'Agents checked inventory and found Business is SOLD OUT - saved us from an embarrassing mistake!',
   },
   'GHI654': {
-    demonstrates: 'Suppression Logic - Customer protection during service recovery',
-    expectedOutcome: '❌ NO OFFER (Recent complaint - 14 day suppression)',
-    keyInsight: 'Pipeline stops at Agent 1 - protects customer relationship',
+    demonstrates: 'Customer who recently complained - should we contact them?',
+    expectedOutcome: '❌ NO OFFER sent',
+    keyInsight: 'Agents found this customer complained 5 days ago - contacting them now would make things WORSE',
   },
 };
 

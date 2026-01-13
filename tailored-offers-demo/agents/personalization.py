@@ -1,44 +1,70 @@
 """
-Agent 4: Personalization Agent (GenAI)
+Agent 4: Personalization Agent (LLM-Powered GenAI)
 
 Purpose: Generates tailored messaging based on customer context
 Data Sources: Customer attributes, brand guidelines, past interactions
 Decisions: Message tone, content, personalization level
+
+This agent demonstrates GENERATIVE AI:
+- Uses LLM to create truly personalized messages
+- Adapts tone based on customer profile
+- Goes beyond template fill-in-the-blank
+
+Architecture:
+- LangGraph: Workflow orchestration
+- LLM: Creative generation within this agent
+- Can fall back to templates if LLM unavailable
 """
 from typing import Dict, Any, List
 from .state import AgentState
+from .llm_service import get_llm, is_llm_available
+
+
+# System prompt for personalized message generation
+PERSONALIZATION_SYSTEM_PROMPT = """You are a Personalization Agent for American Airlines' Tailored Offers system.
+
+Your job is to create personalized upgrade offer messages that resonate with each customer.
+
+Brand Guidelines:
+- American Airlines tone: Professional, warm, trustworthy
+- For business travelers: Emphasize productivity, efficiency, status
+- For leisure travelers: Emphasize comfort, experience, value
+- Always be respectful and never pushy
+
+You must generate:
+1. A compelling subject line (max 60 chars)
+2. A personalized message body
+
+Output in this exact JSON format:
+```json
+{
+  "subject": "Your subject line here",
+  "body": "Your message body here with proper line breaks using \\n",
+  "tone_used": "professional" or "friendly" or "balanced",
+  "personalization_elements": ["element1", "element2"],
+  "key_benefit_highlighted": "The main benefit you emphasized"
+}
+```
+
+Make the customer feel valued, not targeted. Write like a helpful travel advisor, not a marketing bot."""
 
 
 class PersonalizationAgent:
     """
-    Generates personalized offer messaging using customer context.
+    Generates personalized offer messaging using LLM.
 
-    This agent answers: "What message should we send?"
+    This agent demonstrates HOW GENAI DIFFERS FROM TEMPLATES:
+    - Template: "Dear {name}, upgrade to {cabin} for ${price}!"
+    - GenAI: Creates contextually relevant, emotionally resonant messages
+             that adapt to the customer's unique profile
 
-    Note: In production, this would use an LLM for dynamic generation.
-    For the demo, we use template-based generation with clear reasoning.
+    Architecture shows:
+    - LangGraph: orchestrates the workflow (agent sequence)
+    - LLM: provides creative generation WITHIN this agent
+    - Temporal: could provide durable execution
     """
 
-    # Brand tone guidelines
-    TONE_GUIDELINES = {
-        "business": {
-            "style": "professional",
-            "emphasis": ["productivity", "efficiency", "status"],
-            "avoid": ["casual language", "excessive emojis"]
-        },
-        "leisure": {
-            "style": "friendly",
-            "emphasis": ["comfort", "experience", "value"],
-            "avoid": ["overly formal language"]
-        },
-        "mixed": {
-            "style": "balanced",
-            "emphasis": ["flexibility", "convenience"],
-            "avoid": ["extremes in tone"]
-        }
-    }
-
-    # Offer-specific messaging elements
+    # Offer-specific messaging elements (used for both LLM context and template fallback)
     OFFER_BENEFITS = {
         "IU_BUSINESS": [
             "Lie-flat seat for maximum comfort",
@@ -60,12 +86,20 @@ class PersonalizationAgent:
         ]
     }
 
-    def __init__(self):
+    def __init__(self, use_llm: bool = True):
         self.name = "Personalization Agent"
+        self.use_llm = use_llm
+        self._llm = None
+
+    @property
+    def llm(self):
+        if self._llm is None:
+            self._llm = get_llm(temperature=0.7)  # Higher temp for creative generation
+        return self._llm
 
     def analyze(self, state: AgentState) -> Dict[str, Any]:
         """
-        Generate personalized messaging for the offer.
+        Generate personalized messaging using LLM (or template fallback).
 
         Returns updated state with message content.
         """
@@ -83,6 +117,24 @@ class PersonalizationAgent:
                 "reasoning_trace": [f"{self.name}: Skipped - no offer selected"]
             }
 
+        # Gather context
+        context = self._build_context(state)
+        reasoning_parts.append(f"Personalizing for: {context['customer_name']}")
+        reasoning_parts.append(f"Travel pattern: {context['travel_pattern']}")
+        reasoning_parts.append(f"Offer: {context['offer_name']} @ ${context['offer_price']:.0f}")
+
+        # Use LLM if available, otherwise fall back to templates
+        if self.use_llm and is_llm_available():
+            result = self._llm_generation(context, reasoning_parts)
+            result["generation_mode"] = "LLM"
+        else:
+            result = self._template_generation(context, reasoning_parts)
+            result["generation_mode"] = "TEMPLATE"
+
+        return result
+
+    def _build_context(self, state: AgentState) -> Dict[str, Any]:
+        """Build context dictionary for personalization."""
         customer = state.get("customer_data", {})
         flight = state.get("flight_data", {})
         reservation = state.get("reservation_data", {})
@@ -90,98 +142,302 @@ class PersonalizationAgent:
         offer_price = state.get("offer_price", 0)
         fallback = state.get("fallback_offer")
 
-        # Extract personalization inputs
-        first_name = customer.get("first_name", "Valued Customer")
-        travel_pattern = customer.get("travel_pattern", "mixed")
-        loyalty_tier = customer.get("loyalty_tier", "General")
-
-        origin = flight.get("origin_city", flight.get("origin", ""))
-        destination = flight.get("destination_city", flight.get("destination", ""))
-        flight_id = flight.get("flight_id", "")
-        departure_date = reservation.get("departure_date", "")
-        hours_to_departure = reservation.get("hours_to_departure", 72)
-
-        reasoning_parts.append(f"Personalizing for: {first_name}")
-        reasoning_parts.append(f"Travel pattern: {travel_pattern}")
-        reasoning_parts.append(f"Route: {origin} → {destination}")
-
-        # Determine tone
-        tone_config = self.TONE_GUIDELINES.get(travel_pattern, self.TONE_GUIDELINES["mixed"])
-        tone = tone_config["style"]
-        emphasis = tone_config["emphasis"]
-
-        reasoning_parts.append(f"Selected tone: {tone}")
-        reasoning_parts.append(f"Emphasis points: {', '.join(emphasis)}")
-
-        # Get offer display name and benefits
+        # Map offer type to display name
         offer_names = {
             "IU_BUSINESS": "Business Class",
             "IU_PREMIUM_ECONOMY": "Premium Economy",
             "MCE": "Main Cabin Extra"
         }
-        offer_name = offer_names.get(selected_offer, selected_offer)
-        benefits = self.OFFER_BENEFITS.get(selected_offer, [])
 
-        # Select top 3 benefits based on travel pattern
-        selected_benefits = self._select_benefits(benefits, travel_pattern, emphasis)
-        reasoning_parts.append(f"Selected benefits: {selected_benefits}")
-
-        # Determine urgency level
+        # Get urgency level
+        hours_to_departure = reservation.get("hours_to_departure", 72)
         if hours_to_departure <= 24:
             urgency = "high"
-            urgency_text = "Last chance! "
         elif hours_to_departure <= 48:
             urgency = "medium"
-            urgency_text = "Don't miss out - "
         else:
             urgency = "low"
-            urgency_text = ""
 
-        reasoning_parts.append(f"Urgency level: {urgency}")
+        return {
+            "customer_name": customer.get("first_name", "Valued Customer"),
+            "full_name": f"{customer.get('first_name', '')} {customer.get('last_name', '')}",
+            "loyalty_tier": customer.get("loyalty_tier", "General"),
+            "travel_pattern": customer.get("travel_pattern", "mixed"),
+            "annual_revenue": customer.get("annual_revenue", 0),
+            "historical_acceptance_rate": customer.get("historical_upgrades", {}).get("acceptance_rate", 0),
+            "origin": flight.get("origin_city", flight.get("origin", "")),
+            "destination": flight.get("destination_city", flight.get("destination", "")),
+            "flight_id": flight.get("flight_id", ""),
+            "departure_date": reservation.get("departure_date", ""),
+            "hours_to_departure": hours_to_departure,
+            "urgency": urgency,
+            "selected_offer": selected_offer,
+            "offer_name": offer_names.get(selected_offer, selected_offer),
+            "offer_price": offer_price,
+            "offer_benefits": self.OFFER_BENEFITS.get(selected_offer, []),
+            "fallback_offer": fallback
+        }
 
-        # Generate subject line
-        subject = self._generate_subject(
-            first_name=first_name,
-            offer_name=offer_name,
-            destination=destination,
-            urgency=urgency,
-            tone=tone
-        )
+    def _llm_generation(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
+        """Use LLM for creative message generation."""
+        reasoning_parts.append("\n[LLM GENERATION MODE]")
 
-        # Generate message body
-        body = self._generate_body(
-            first_name=first_name,
-            offer_name=offer_name,
-            price=offer_price,
-            origin=origin,
-            destination=destination,
-            flight_id=flight_id,
-            departure_date=departure_date,
-            benefits=selected_benefits,
-            urgency_text=urgency_text,
-            tone=tone,
-            fallback=fallback
-        )
+        # Build prompt
+        user_prompt = f"""Create a personalized upgrade offer message for this customer:
 
-        # Track personalization elements used
+## Customer Profile
+- Name: {context['customer_name']}
+- Loyalty Tier: {context['loyalty_tier']}
+- Travel Pattern: {context['travel_pattern']}
+- Annual Revenue: ${context['annual_revenue']:,}
+- Historical Upgrade Acceptance: {context['historical_acceptance_rate']:.0%}
+
+## Trip Details
+- Route: {context['origin']} → {context['destination']}
+- Flight: {context['flight_id']}
+- Departure: {context['departure_date']}
+- Time to Departure: {context['hours_to_departure']} hours
+- Urgency Level: {context['urgency']}
+
+## Offer Details
+- Upgrade To: {context['offer_name']}
+- Price: ${context['offer_price']:.0f}
+- Key Benefits:
+{chr(10).join(f'  - {b}' for b in context['offer_benefits'][:4])}
+"""
+
+        if context['fallback_offer']:
+            user_prompt += f"""
+## Alternative Option
+- {context['fallback_offer']['display_name']} also available at ${context['fallback_offer']['price']:.0f}
+"""
+
+        user_prompt += """
+## Your Task
+Create a message that:
+1. Feels personal, not mass-marketed
+2. Highlights benefits relevant to their travel pattern
+3. Includes appropriate urgency without being pushy
+4. Makes them feel valued as an American Airlines customer
+
+Output the JSON format specified in your instructions.
+"""
+
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage
+
+            response = self.llm.invoke([
+                SystemMessage(content=PERSONALIZATION_SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt)
+            ])
+
+            llm_output = response.content
+            reasoning_parts.append(f"\n{llm_output}")
+
+            # Parse the response
+            message = self._parse_llm_message(llm_output, context)
+
+            trace_entry = (
+                f"{self.name} [LLM]: Generated {message['tone_used']} message | "
+                f"Personalization: {len(message['personalization_elements'])} elements | "
+                f"Key benefit: {message['key_benefit_highlighted'][:30]}..."
+            )
+
+            return {
+                "message_subject": message["subject"],
+                "message_body": message["body"],
+                "message_tone": message["tone_used"],
+                "personalization_elements": message["personalization_elements"],
+                "key_benefit": message["key_benefit_highlighted"],
+                "personalization_reasoning": "\n".join(reasoning_parts),
+                "reasoning_trace": [trace_entry]
+            }
+
+        except Exception as e:
+            reasoning_parts.append(f"\n[LLM Error: {str(e)} - falling back to templates]")
+            return self._template_generation(context, reasoning_parts)
+
+    def _parse_llm_message(self, llm_output: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse the LLM's JSON message from its response."""
+        import json
+        import re
+
+        # Try to find JSON in the response
+        json_match = re.search(r'```json\s*(.*?)\s*```', llm_output, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Try to find raw JSON
+        try:
+            start = llm_output.find('{')
+            end = llm_output.rfind('}') + 1
+            if start >= 0 and end > start:
+                return json.loads(llm_output[start:end])
+        except json.JSONDecodeError:
+            pass
+
+        # Default fallback
+        return {
+            "subject": f"{context['customer_name']}, upgrade to {context['offer_name']} for your trip!",
+            "body": f"Hi {context['customer_name']},\n\nUpgrade to {context['offer_name']} on your upcoming flight to {context['destination']} for just ${context['offer_price']:.0f}.\n\nThank you for choosing American Airlines.",
+            "tone_used": "balanced",
+            "personalization_elements": ["name", "destination", "offer"],
+            "key_benefit_highlighted": "Upgrade experience"
+        }
+
+    def _template_generation(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
+        """
+        Fallback template-based generation when LLM unavailable.
+
+        This shows the CONTRAST with LLM generation - rigid templates.
+        """
+        # ========== DATA USED SECTION ==========
+        reasoning_parts.append("📊 DATA USED (from MCP Tools):")
+        reasoning_parts.append("")
+        reasoning_parts.append("┌─ get_customer_profile() → AADV Database")
+        reasoning_parts.append(f"│  • Customer Name: {context['customer_name']}")
+        reasoning_parts.append(f"│  • Loyalty Tier: {context['loyalty_tier']}")
+        reasoning_parts.append(f"│  • Travel Pattern: {context['travel_pattern']}")
+        reasoning_parts.append(f"│  • Historical Acceptance: {context['historical_acceptance_rate']:.0%}")
+        reasoning_parts.append("│")
+        reasoning_parts.append("├─ Trip Context (from Reservation)")
+        reasoning_parts.append(f"│  • Route: {context['origin']} → {context['destination']}")
+        reasoning_parts.append(f"│  • Flight: {context['flight_id']}")
+        reasoning_parts.append(f"│  • Departure: {context['departure_date']}")
+        reasoning_parts.append(f"│  • Time to Departure: {context['hours_to_departure']} hours")
+        reasoning_parts.append("│")
+        reasoning_parts.append("└─ Offer Details (from Orchestration Agent)")
+        reasoning_parts.append(f"   • Offer: {context['offer_name']}")
+        reasoning_parts.append(f"   • Price: ${context['offer_price']:.0f}")
+
+        # ========== ANALYSIS SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
+        reasoning_parts.append("🔍 ANALYSIS:")
+        reasoning_parts.append("")
+
+        # Determine tone from travel pattern
+        if context['travel_pattern'] == 'business':
+            tone = "professional"
+            reasoning_parts.append("   1. Tone Selection: PROFESSIONAL")
+            reasoning_parts.append(f"      → Travel pattern is '{context['travel_pattern']}'")
+            reasoning_parts.append("      → Business travelers prefer efficient, status-aware messaging")
+        elif context['travel_pattern'] == 'leisure':
+            tone = "friendly"
+            reasoning_parts.append("   1. Tone Selection: FRIENDLY")
+            reasoning_parts.append(f"      → Travel pattern is '{context['travel_pattern']}'")
+            reasoning_parts.append("      → Leisure travelers respond to experience-focused messaging")
+        else:
+            tone = "balanced"
+            reasoning_parts.append("   1. Tone Selection: BALANCED")
+            reasoning_parts.append(f"      → Travel pattern is '{context['travel_pattern']}'")
+            reasoning_parts.append("      → Mixed travelers get neutral, benefit-focused messaging")
+
+        reasoning_parts.append("")
+        if context['urgency'] == 'high':
+            reasoning_parts.append("   2. Urgency Level: HIGH")
+            reasoning_parts.append(f"      → Only {context['hours_to_departure']} hours to departure")
+            reasoning_parts.append("      → Message emphasizes limited-time opportunity")
+        elif context['urgency'] == 'medium':
+            reasoning_parts.append("   2. Urgency Level: MEDIUM")
+            reasoning_parts.append(f"      → {context['hours_to_departure']} hours to departure")
+            reasoning_parts.append("      → Include soft urgency cues")
+        else:
+            reasoning_parts.append("   2. Urgency Level: LOW")
+            reasoning_parts.append(f"      → {context['hours_to_departure']} hours to departure")
+            reasoning_parts.append("      → Focus on value proposition, no pressure")
+
+        reasoning_parts.append("")
+        reasoning_parts.append("   3. Personalization Elements:")
+        reasoning_parts.append(f"      • Name: {context['customer_name']}")
+        reasoning_parts.append(f"      • Destination: {context['destination']}")
+        reasoning_parts.append(f"      • Tone: {tone}")
+        reasoning_parts.append(f"      • Benefits: Matched to {context['offer_name']}")
+
+        # Generate subject based on urgency
+        if context['urgency'] == 'high':
+            if tone == "professional":
+                subject = f"{context['customer_name']}, final opportunity to upgrade to {context['offer_name']}"
+            else:
+                subject = f"{context['customer_name']}, last chance to upgrade your {context['destination']} trip!"
+        elif context['urgency'] == 'medium':
+            if tone == "professional":
+                subject = f"{context['customer_name']}, {context['offer_name']} upgrade available"
+            else:
+                subject = f"{context['customer_name']}, treat yourself to {context['offer_name']}!"
+        else:
+            if tone == "professional":
+                subject = f"{context['customer_name']}, upgrade available for your upcoming travel"
+            else:
+                subject = f"{context['customer_name']}, make your {context['destination']} trip even better!"
+
+        # Generate body
+        if tone == "professional":
+            opening = f"Dear {context['customer_name']},\n\nWe have a {context['offer_name']} upgrade available for your upcoming flight."
+            cta = "\n\nTo secure your upgrade, click below or visit aa.com."
+            closing = "\n\nThank you for choosing American Airlines."
+        else:
+            opening = f"Hi {context['customer_name']}!\n\nYour {context['destination']} trip just got an upgrade opportunity!"
+            cta = "\n\nReady to upgrade? Tap below to claim your seat!"
+            closing = "\n\nSee you on board!"
+
+        details = f"\n\nUpgrade to {context['offer_name']} on {context['flight_id']} ({context['origin']} → {context['destination']}) for just ${context['offer_price']:.0f}."
+
+        benefits_text = "\n\nYour upgrade includes:"
+        for benefit in context['offer_benefits'][:3]:
+            benefits_text += f"\n  - {benefit}"
+
+        fallback_text = ""
+        if context['fallback_offer']:
+            fallback_text = f"\n\nNot quite right? {context['fallback_offer']['display_name']} is also available from ${context['fallback_offer']['price']:.0f}."
+
+        body = opening + details + benefits_text + cta + fallback_text + closing
+
         personalization_elements = [
-            f"name:{first_name}",
-            f"route:{origin}-{destination}",
+            f"name:{context['customer_name']}",
+            f"route:{context['origin']}-{context['destination']}",
             f"tone:{tone}",
-            f"urgency:{urgency}",
-            f"benefits:{len(selected_benefits)}"
+            f"urgency:{context['urgency']}"
         ]
 
-        reasoning_parts.append(f"\nGenerated subject: {subject}")
-        reasoning_parts.append(f"Message tone: {tone}")
-        reasoning_parts.append(f"Personalization elements: {len(personalization_elements)}")
-
-        full_reasoning = "\n".join(reasoning_parts)
+        # ========== DECISION SECTION ==========
+        reasoning_parts.append("")
+        reasoning_parts.append("─" * 50)
+        reasoning_parts.append("")
+        reasoning_parts.append("✅ DECISION: PERSONALIZED MESSAGE CREATED")
+        reasoning_parts.append("")
+        reasoning_parts.append("📍 IN SIMPLE TERMS:")
+        reasoning_parts.append(f"   We wrote a message specifically for {context['customer_name']}:")
+        reasoning_parts.append(f"   • Used their name (not \"Dear Customer\")")
+        reasoning_parts.append(f"   • Matched the tone to their travel style ({context['travel_pattern']})")
+        if context['travel_pattern'] == 'business':
+            reasoning_parts.append("     → Business travelers want efficiency, not fluff")
+        elif context['travel_pattern'] == 'leisure':
+            reasoning_parts.append("     → Leisure travelers respond to excitement and experience")
+        reasoning_parts.append(f"   • Mentioned their actual destination ({context['destination']})")
+        if context['urgency'] == 'high':
+            reasoning_parts.append("   • Added urgency because their flight is SOON")
+        reasoning_parts.append("")
+        reasoning_parts.append(f"   Subject line: \"{subject[:45]}...\"")
+        reasoning_parts.append("")
+        reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
+        reasoning_parts.append("   A template would just say:")
+        reasoning_parts.append("   \"Dear {NAME}, upgrade to {CABIN} for ${PRICE}\"")
+        reasoning_parts.append("")
+        reasoning_parts.append("   This agent created a message that FEELS personal:")
+        reasoning_parts.append(f"   • Knows {context['customer_name']} is a {context['travel_pattern']} traveler")
+        reasoning_parts.append(f"   • Knows they're going to {context['destination']}")
+        reasoning_parts.append(f"   • Speaks to them in the right tone")
+        reasoning_parts.append("")
+        reasoning_parts.append("   Personal messages get 2-3x higher response rates! 📈")
 
         trace_entry = (
-            f"{self.name}: Generated {tone} message for {first_name} | "
-            f"Offer: {offer_name} @ ${offer_price:.0f} | "
-            f"Urgency: {urgency}"
+            f"{self.name} [TEMPLATE]: Generated {tone} message | "
+            f"Elements: {len(personalization_elements)}"
         )
 
         return {
@@ -189,90 +445,7 @@ class PersonalizationAgent:
             "message_body": body,
             "message_tone": tone,
             "personalization_elements": personalization_elements,
-            "personalization_reasoning": full_reasoning,
+            "key_benefit": context['offer_benefits'][0] if context['offer_benefits'] else "Upgrade experience",
+            "personalization_reasoning": "\n".join(reasoning_parts),
             "reasoning_trace": [trace_entry]
         }
-
-    def _select_benefits(
-        self,
-        benefits: List[str],
-        travel_pattern: str,
-        emphasis: List[str]
-    ) -> List[str]:
-        """Select most relevant benefits based on travel pattern"""
-        # For demo, just take top 3
-        # In production, would use semantic matching with emphasis keywords
-        return benefits[:3]
-
-    def _generate_subject(
-        self,
-        first_name: str,
-        offer_name: str,
-        destination: str,
-        urgency: str,
-        tone: str
-    ) -> str:
-        """Generate email/push subject line"""
-        if urgency == "high":
-            if tone == "professional":
-                return f"{first_name}, final opportunity to upgrade to {offer_name}"
-            else:
-                return f"{first_name}, last chance to upgrade your {destination} trip!"
-        elif urgency == "medium":
-            if tone == "professional":
-                return f"{first_name}, {offer_name} upgrade available for your upcoming flight"
-            else:
-                return f"{first_name}, treat yourself to {offer_name} on your {destination} trip!"
-        else:
-            if tone == "professional":
-                return f"{first_name}, upgrade to {offer_name} for your upcoming travel"
-            else:
-                return f"{first_name}, make your {destination} trip even better!"
-
-    def _generate_body(
-        self,
-        first_name: str,
-        offer_name: str,
-        price: float,
-        origin: str,
-        destination: str,
-        flight_id: str,
-        departure_date: str,
-        benefits: List[str],
-        urgency_text: str,
-        tone: str,
-        fallback: Dict[str, Any] = None
-    ) -> str:
-        """Generate message body"""
-        # Opening
-        if tone == "professional":
-            opening = f"Dear {first_name},\n\n{urgency_text}We have a {offer_name} upgrade available for your upcoming flight."
-        else:
-            opening = f"Hi {first_name}!\n\n{urgency_text}Your {destination} trip just got an upgrade opportunity!"
-
-        # Offer details
-        details = f"\n\nUpgrade to {offer_name} on {flight_id} ({origin} → {destination}) for just ${price:.0f}."
-
-        # Benefits
-        benefits_text = "\n\nYour upgrade includes:"
-        for benefit in benefits:
-            benefits_text += f"\n  - {benefit}"
-
-        # Call to action
-        if tone == "professional":
-            cta = "\n\nTo secure your upgrade, click below or visit aa.com."
-        else:
-            cta = "\n\nReady to upgrade? Tap below to claim your seat!"
-
-        # Fallback mention (if applicable)
-        fallback_text = ""
-        if fallback:
-            fallback_text = f"\n\nNot quite right? {fallback['display_name']} is also available from ${fallback['price']:.0f}."
-
-        # Closing
-        if tone == "professional":
-            closing = "\n\nThank you for choosing American Airlines."
-        else:
-            closing = "\n\nSee you on board!"
-
-        return opening + details + benefits_text + cta + fallback_text + closing
