@@ -1,0 +1,138 @@
+{
+  "description": "Simulated ML model P(buy) scores - In production, these come from the ML team's model",
+  "scores": {
+    "ABC123": {
+      "pnr_locator": "ABC123",
+      "customer_id": "CUST001",
+      "flight_id": "AA2847",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "p_buy": 0.68,
+          "confidence": 0.85,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+        },
+        "IU_PREMIUM_ECONOMY": {
+          "p_buy": 0.55,
+          "confidence": 0.82,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+        },
+        "MCE": {
+          "p_buy": 0.82,
+          "confidence": 0.91,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+        }
+      },
+      "segment": "high_value_leisure",
+      "price_sensitivity": "medium"
+    },
+    "XYZ789": {
+      "pnr_locator": "XYZ789",
+      "customer_id": "CUST002",
+      "flight_id": "AA1234",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "p_buy": 0.75,
+          "confidence": 0.92,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose"]
+        },
+        "IU_PREMIUM_ECONOMY": {
+          "p_buy": 0.0,
+          "confidence": 0.0,
+          "features_used": []
+        },
+        "MCE": {
+          "p_buy": 0.45,
+          "confidence": 0.88,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+        }
+      },
+      "segment": "frequent_business",
+      "price_sensitivity": "low"
+    },
+    "LMN456": {
+      "pnr_locator": "LMN456",
+      "customer_id": "CUST003",
+      "flight_id": "AA100",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "p_buy": 0.89,
+          "confidence": 0.95,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose", "international"]
+        },
+        "IU_PREMIUM_ECONOMY": {
+          "p_buy": 0.0,
+          "confidence": 0.0,
+          "features_used": []
+        },
+        "MCE": {
+          "p_buy": 0.0,
+          "confidence": 0.0,
+          "features_used": []
+        }
+      },
+      "segment": "elite_business",
+      "price_sensitivity": "low"
+    },
+    "DEF321": {
+      "pnr_locator": "DEF321",
+      "customer_id": "CUST004",
+      "flight_id": "AA555",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "p_buy": null,
+          "confidence": 0.0,
+          "features_used": [],
+          "error": "cold_start_insufficient_history"
+        },
+        "IU_PREMIUM_ECONOMY": {
+          "p_buy": 0.0,
+          "confidence": 0.0,
+          "features_used": []
+        },
+        "MCE": {
+          "p_buy": 0.35,
+          "confidence": 0.45,
+          "features_used": ["fare_class", "days_to_departure"]
+        }
+      },
+      "segment": "new_customer",
+      "price_sensitivity": "high"
+    },
+    "GHI654": {
+      "pnr_locator": "GHI654",
+      "customer_id": "CUST005",
+      "flight_id": "AA2847",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "p_buy": 0.52,
+          "confidence": 0.78,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+        },
+        "IU_PREMIUM_ECONOMY": {
+          "p_buy": 0.48,
+          "confidence": 0.75,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+        },
+        "MCE": {
+          "p_buy": 0.71,
+          "confidence": 0.86,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+        }
+      },
+      "segment": "mid_value_leisure",
+      "price_sensitivity": "medium",
+      "suppression_flag": true,
+      "suppression_reason": "recent_complaint"
+    }
+  }
+}

@@ -1,0 +1,338 @@
+[
+  {
+    "flight_id": "AA2847",
+    "flight_number": 2847,
+    "operating_airline_code": "AA",
+    "origin": "DFW",
+    "origin_city": "Dallas/Fort Worth",
+    "destination": "LAX",
+    "destination_city": "Los Angeles",
+    "departure_date": "2026-01-14",
+    "departure_time": "14:00",
+    "arrival_time": "15:30",
+    "duration_minutes": 210,
+    "distance_miles": 1235,
+    "aircraft_type": "Boeing 777-200",
+    "equipment_model": "777-200",
+    "is_international": false,
+    "leg": 1,
+    "local_bid_price": 125.00,
+    "cabins": {
+      "business": {
+        "total_seats": 37,
+        "sold_seats": 30,
+        "available_seats": 7,
+        "load_factor": 0.81,
+        "expected_load_factor": 0.88,
+        "needs_treatment": true,
+        "aadvantage_pax": 22,
+        "total_revenue": 45000,
+        "mileage_burn_revenue": 8500,
+        "iu_revenue": 3200,
+        "iu_miles_burn_revenue": 650,
+        "float_out_sold": 2
+      },
+      "premium_economy": {
+        "total_seats": 24,
+        "sold_seats": 21,
+        "available_seats": 3,
+        "load_factor": 0.88,
+        "expected_load_factor": 0.92,
+        "needs_treatment": false,
+        "aadvantage_pax": 15,
+        "total_revenue": 12500,
+        "mileage_burn_revenue": 2100,
+        "iu_revenue": 1800,
+        "iu_miles_burn_revenue": 320,
+        "float_out_sold": 1
+      },
+      "main_cabin_extra": {
+        "total_seats": 60,
+        "sold_seats": 36,
+        "available_seats": 24,
+        "load_factor": 0.60,
+        "expected_load_factor": 0.75,
+        "needs_treatment": true,
+        "aadvantage_pax": 28,
+        "total_revenue": 2340,
+        "mileage_burn_revenue": 0,
+        "avg_paid_amount": 39,
+        "avg_paid_ldf_12mo": 0.68
+      },
+      "main_cabin": {
+        "total_seats": 167,
+        "sold_seats": 152,
+        "available_seats": 15,
+        "load_factor": 0.91,
+        "expected_load_factor": 0.94,
+        "needs_treatment": false,
+        "aadvantage_pax": 89,
+        "total_revenue": 38200
+      }
+    },
+    "pricing": {
+      "business_upgrade_base": 199,
+      "premium_economy_upgrade_base": 129,
+      "mce_upgrade_base": 39
+    },
+    "product_catalog": {
+      "mce_available": true,
+      "mce_price": 39,
+      "iu_available": true,
+      "iu_business_price": 199,
+      "iu_premium_economy_price": 129
+    }
+  },
+  {
+    "flight_id": "AA1234",
+    "flight_number": 1234,
+    "operating_airline_code": "AA",
+    "origin": "ORD",
+    "origin_city": "Chicago O'Hare",
+    "destination": "BOS",
+    "destination_city": "Boston",
+    "departure_date": "2026-01-14",
+    "departure_time": "09:00",
+    "arrival_time": "12:30",
+    "duration_minutes": 150,
+    "distance_miles": 867,
+    "aircraft_type": "Airbus A321",
+    "equipment_model": "A321",
+    "is_international": false,
+    "leg": 1,
+    "local_bid_price": 95.00,
+    "cabins": {
+      "business": {
+        "total_seats": 16,
+        "sold_seats": 10,
+        "available_seats": 6,
+        "load_factor": 0.63,
+        "expected_load_factor": 0.78,
+        "needs_treatment": true,
+        "aadvantage_pax": 8,
+        "total_revenue": 12800,
+        "mileage_burn_revenue": 2400,
+        "iu_revenue": 1950,
+        "iu_miles_burn_revenue": 380,
+        "float_out_sold": 1
+      },
+      "premium_economy": {
+        "total_seats": 0,
+        "sold_seats": 0,
+        "available_seats": 0,
+        "load_factor": 0,
+        "expected_load_factor": 0,
+        "needs_treatment": false,
+        "aadvantage_pax": 0,
+        "total_revenue": 0,
+        "mileage_burn_revenue": 0,
+        "iu_revenue": 0,
+        "iu_miles_burn_revenue": 0,
+        "float_out_sold": 0
+      },
+      "main_cabin_extra": {
+        "total_seats": 30,
+        "sold_seats": 12,
+        "available_seats": 18,
+        "load_factor": 0.40,
+        "expected_load_factor": 0.62,
+        "needs_treatment": true,
+        "aadvantage_pax": 9,
+        "total_revenue": 348,
+        "mileage_burn_revenue": 0,
+        "avg_paid_amount": 29,
+        "avg_paid_ldf_12mo": 0.55
+      },
+      "main_cabin": {
+        "total_seats": 143,
+        "sold_seats": 138,
+        "available_seats": 5,
+        "load_factor": 0.97,
+        "expected_load_factor": 0.98,
+        "needs_treatment": false,
+        "aadvantage_pax": 72,
+        "total_revenue": 28500
+      }
+    },
+    "pricing": {
+      "business_upgrade_base": 179,
+      "premium_economy_upgrade_base": 0,
+      "mce_upgrade_base": 29
+    },
+    "product_catalog": {
+      "mce_available": true,
+      "mce_price": 29,
+      "iu_available": true,
+      "iu_business_price": 179,
+      "iu_premium_economy_price": 0
+    }
+  },
+  {
+    "flight_id": "AA100",
+    "flight_number": 100,
+    "operating_airline_code": "AA",
+    "origin": "JFK",
+    "origin_city": "New York JFK",
+    "destination": "LHR",
+    "destination_city": "London Heathrow",
+    "departure_date": "2026-01-15",
+    "departure_time": "19:00",
+    "arrival_time": "07:00",
+    "duration_minutes": 420,
+    "distance_miles": 3459,
+    "aircraft_type": "Boeing 777-300ER",
+    "equipment_model": "777-300ER",
+    "is_international": true,
+    "leg": 1,
+    "local_bid_price": 450.00,
+    "cabins": {
+      "business": {
+        "total_seats": 52,
+        "sold_seats": 48,
+        "available_seats": 4,
+        "load_factor": 0.92,
+        "expected_load_factor": 0.95,
+        "needs_treatment": false,
+        "aadvantage_pax": 38,
+        "total_revenue": 185000,
+        "mileage_burn_revenue": 42000,
+        "iu_revenue": 18500,
+        "iu_miles_burn_revenue": 4200,
+        "float_out_sold": 2
+      },
+      "premium_economy": {
+        "total_seats": 28,
+        "sold_seats": 20,
+        "available_seats": 8,
+        "load_factor": 0.71,
+        "expected_load_factor": 0.85,
+        "needs_treatment": true,
+        "aadvantage_pax": 14,
+        "total_revenue": 28000,
+        "mileage_burn_revenue": 5600,
+        "iu_revenue": 4800,
+        "iu_miles_burn_revenue": 920,
+        "float_out_sold": 1
+      },
+      "main_cabin_extra": {
+        "total_seats": 44,
+        "sold_seats": 30,
+        "available_seats": 14,
+        "load_factor": 0.68,
+        "expected_load_factor": 0.82,
+        "needs_treatment": true,
+        "aadvantage_pax": 22,
+        "total_revenue": 2670,
+        "mileage_burn_revenue": 0,
+        "avg_paid_amount": 89,
+        "avg_paid_ldf_12mo": 0.72
+      },
+      "main_cabin": {
+        "total_seats": 180,
+        "sold_seats": 172,
+        "available_seats": 8,
+        "load_factor": 0.96,
+        "expected_load_factor": 0.97,
+        "needs_treatment": false,
+        "aadvantage_pax": 95,
+        "total_revenue": 125000
+      }
+    },
+    "pricing": {
+      "business_upgrade_base": 899,
+      "premium_economy_upgrade_base": 399,
+      "mce_upgrade_base": 89
+    },
+    "product_catalog": {
+      "mce_available": true,
+      "mce_price": 89,
+      "iu_available": true,
+      "iu_business_price": 899,
+      "iu_premium_economy_price": 399
+    }
+  },
+  {
+    "flight_id": "AA555",
+    "flight_number": 555,
+    "operating_airline_code": "AA",
+    "origin": "MIA",
+    "origin_city": "Miami",
+    "destination": "DFW",
+    "destination_city": "Dallas/Fort Worth",
+    "departure_date": "2026-01-13",
+    "departure_time": "16:30",
+    "arrival_time": "18:45",
+    "duration_minutes": 195,
+    "distance_miles": 1121,
+    "aircraft_type": "Boeing 737-800",
+    "equipment_model": "737-800",
+    "is_international": false,
+    "leg": 1,
+    "local_bid_price": 85.00,
+    "cabins": {
+      "business": {
+        "total_seats": 16,
+        "sold_seats": 16,
+        "available_seats": 0,
+        "load_factor": 1.0,
+        "expected_load_factor": 1.0,
+        "needs_treatment": false,
+        "aadvantage_pax": 12,
+        "total_revenue": 18500,
+        "mileage_burn_revenue": 3200,
+        "iu_revenue": 2100,
+        "iu_miles_burn_revenue": 420,
+        "float_out_sold": 0
+      },
+      "premium_economy": {
+        "total_seats": 0,
+        "sold_seats": 0,
+        "available_seats": 0,
+        "load_factor": 0,
+        "expected_load_factor": 0,
+        "needs_treatment": false,
+        "aadvantage_pax": 0,
+        "total_revenue": 0,
+        "mileage_burn_revenue": 0,
+        "iu_revenue": 0,
+        "iu_miles_burn_revenue": 0,
+        "float_out_sold": 0
+      },
+      "main_cabin_extra": {
+        "total_seats": 30,
+        "sold_seats": 28,
+        "available_seats": 2,
+        "load_factor": 0.93,
+        "expected_load_factor": 0.96,
+        "needs_treatment": false,
+        "aadvantage_pax": 18,
+        "total_revenue": 700,
+        "mileage_burn_revenue": 0,
+        "avg_paid_amount": 25,
+        "avg_paid_ldf_12mo": 0.82
+      },
+      "main_cabin": {
+        "total_seats": 114,
+        "sold_seats": 110,
+        "available_seats": 4,
+        "load_factor": 0.96,
+        "expected_load_factor": 0.98,
+        "needs_treatment": false,
+        "aadvantage_pax": 58,
+        "total_revenue": 22800
+      }
+    },
+    "pricing": {
+      "business_upgrade_base": 149,
+      "premium_economy_upgrade_base": 0,
+      "mce_upgrade_base": 25
+    },
+    "product_catalog": {
+      "mce_available": true,
+      "mce_price": 25,
+      "iu_available": false,
+      "iu_business_price": 149,
+      "iu_premium_economy_price": 0
+    }
+  }
+]
