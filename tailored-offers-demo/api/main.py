@@ -95,7 +95,8 @@ AGENT_CONFIG = [
         "short_name": "Customer",
         "icon": "brain",
         "description": "Analyzes customer eligibility and segmentation",
-        "reasoning_key": "customer_reasoning"
+        "reasoning_key": "customer_reasoning",
+        "phase": "decision"
     },
     {
         "id": "flight_optimization",
@@ -103,7 +104,8 @@ AGENT_CONFIG = [
         "short_name": "Flight",
         "icon": "chart",
         "description": "Evaluates cabin inventory and flight priority",
-        "reasoning_key": "flight_reasoning"
+        "reasoning_key": "flight_reasoning",
+        "phase": "decision"
     },
     {
         "id": "offer_orchestration",
@@ -111,7 +113,8 @@ AGENT_CONFIG = [
         "short_name": "Offer",
         "icon": "scale",
         "description": "Selects optimal offer using expected value calculation",
-        "reasoning_key": "offer_reasoning"
+        "reasoning_key": "offer_reasoning",
+        "phase": "decision"
     },
     {
         "id": "personalization",
@@ -119,7 +122,8 @@ AGENT_CONFIG = [
         "short_name": "Message",
         "icon": "sparkles",
         "description": "Generates personalized messaging with GenAI",
-        "reasoning_key": "personalization_reasoning"
+        "reasoning_key": "personalization_reasoning",
+        "phase": "decision"
     },
     {
         "id": "channel_timing",
@@ -127,15 +131,17 @@ AGENT_CONFIG = [
         "short_name": "Channel",
         "icon": "phone",
         "description": "Optimizes delivery channel and send time",
-        "reasoning_key": "channel_reasoning"
+        "reasoning_key": "channel_reasoning",
+        "phase": "decision"
     },
     {
         "id": "measurement",
-        "name": "Measurement & Learning",
-        "short_name": "Measure",
-        "icon": "trending",
-        "description": "Assigns A/B test groups and tracking",
-        "reasoning_key": "measurement_reasoning"
+        "name": "Tracking Setup",
+        "short_name": "Track",
+        "icon": "tag",
+        "description": "Attaches A/B test group and tracking ID for ROI measurement",
+        "reasoning_key": "measurement_reasoning",
+        "phase": "post-decision"
     }
 ]
 
@@ -189,12 +195,14 @@ def get_scenario_tag(pnr: str, customer: Dict, reservation: Dict) -> str:
     """Determine scenario tag for a PNR"""
     if customer.get("suppression", {}).get("is_suppressed"):
         return "Suppressed"
-    if customer.get("tenure_days", 0) < 60:
+    if customer.get("aadv_tenure_days", 0) < 60:
         return "Cold Start"
-    if reservation.get("offer_history", {}).get("offers_sent", 0) > 0:
-        return "Follow-up"
-    if reservation.get("is_international"):
+    if reservation.get("intl_trp_ind", 0) == 1:
         return "International"
+    # Check for price-sensitive customers (low upgrade acceptance rate + low avg spend)
+    historical = customer.get("historical_upgrades", {})
+    if historical.get("acceptance_rate", 1) < 0.15 and historical.get("avg_upgrade_spend", 100) < 35:
+        return "Price Sensitive"
     return "Standard"
 
 
@@ -374,18 +382,18 @@ async def list_pnrs():
     result = []
 
     for res in reservations:
-        enriched = get_enriched_pnr(res["pnr_locator"])
+        enriched = get_enriched_pnr(res["pnr_loctr_id"])
         if enriched:
             customer = enriched["customer"]
             flight = enriched["flight"]
 
             result.append(PNRSummary(
-                pnr=res["pnr_locator"],
+                pnr=res["pnr_loctr_id"],
                 customer_name=f"{customer['first_name']} {customer['last_name']}",
                 customer_tier=customer["loyalty_tier"],
-                route=f"{flight['origin']} → {flight['destination']}",
+                route=f"{flight['schd_leg_dep_airprt_iata_cd']} → {flight['schd_leg_arvl_airprt_iata_cd']}",
                 hours_to_departure=res["hours_to_departure"],
-                scenario_tag=get_scenario_tag(res["pnr_locator"], customer, res)
+                scenario_tag=get_scenario_tag(res["pnr_loctr_id"], customer, res)
             ))
 
     return result
@@ -405,28 +413,28 @@ async def get_pnr(pnr_locator: str):
     return {
         "pnr_locator": pnr_locator,
         "customer": {
-            "customer_id": customer["customer_id"],
+            "lylty_acct_id": customer["lylty_acct_id"],
             "name": f"{customer['first_name']} {customer['last_name']}",
             "loyalty_tier": customer["loyalty_tier"],
-            "tenure_days": customer["tenure_days"],
-            "travel_pattern": customer["travel_pattern"],
-            "annual_revenue": customer["annual_revenue"],
+            "aadv_tenure_days": customer["aadv_tenure_days"],
+            "business_trip_likelihood": customer.get("business_trip_likelihood", 0),
+            "flight_revenue_amt_history": customer.get("flight_revenue_amt_history", 0),
             "is_suppressed": customer.get("suppression", {}).get("is_suppressed", False),
             "complaint_reason": customer.get("suppression", {}).get("complaint_reason"),
             "marketing_consent": customer.get("marketing_consent", {}),
             "historical_upgrades": customer.get("historical_upgrades", {})
         },
         "flight": {
-            "flight_id": flight["flight_id"],
-            "route": f"{flight['origin_city']} ({flight['origin']}) → {flight['destination_city']} ({flight['destination']})",
-            "departure_date": flight["departure_date"],
-            "departure_time": flight["departure_time"],
-            "aircraft_type": flight.get("aircraft_type", ""),
+            "operat_flight_nbr": flight["operat_flight_nbr"],
+            "route": f"{flight['schd_leg_dep_airprt_iata_cd']} → {flight['schd_leg_arvl_airprt_iata_cd']}",
+            "leg_dep_dt": flight["leg_dep_dt"],
+            "schd_leg_dep_lcl_tms": flight["schd_leg_dep_lcl_tms"],
+            "equipment_model": flight.get("equipment_model", ""),
             "cabins": flight.get("cabins", {})
         },
         "reservation": {
             "hours_to_departure": reservation["hours_to_departure"],
-            "current_cabin": reservation["current_cabin"],
+            "max_bkd_cabin_cd": reservation["max_bkd_cabin_cd"],
             "fare_class": reservation.get("fare_class", ""),
             "checked_in": reservation.get("checked_in", False)
         },
@@ -495,8 +503,9 @@ async def evaluate_pnr_stream(pnr_locator: str):
                 })
             }
 
-            # Add artificial delay for demo effect (800-1500ms)
-            await asyncio.sleep(random.uniform(0.8, 1.5))
+            # Minimal delay for visual feedback (workflows are instant)
+            # Note: Personalization agent has real LLM latency when API key is set
+            await asyncio.sleep(0.15)  # 150ms - just enough for UI to show "processing"
 
             # Run agent
             agent_start = time.time()

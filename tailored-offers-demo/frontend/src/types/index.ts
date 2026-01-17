@@ -9,12 +9,12 @@ export interface PNRSummary {
 }
 
 export interface CustomerData {
-  customer_id: string;
+  lylty_acct_id: string;
   name: string;
-  loyalty_tier: string;
-  tenure_days: number;
-  travel_pattern: string;
-  annual_revenue: number;
+  loyalty_tier: string;  // Single letter: E, C, T, P, G, R, N
+  aadv_tenure_days: number;
+  business_trip_likelihood: number;  // 0-1 float
+  flight_revenue_amt_history: number;
   is_suppressed: boolean;
   complaint_reason?: string;
   marketing_consent?: {
@@ -28,20 +28,21 @@ export interface CustomerData {
 }
 
 export interface FlightData {
-  flight_id: string;
+  operat_flight_nbr: number;
   route: string;
-  departure_date: string;
-  departure_time: string;
-  aircraft_type?: string;
+  leg_dep_dt: string;
+  schd_leg_dep_lcl_tms: string;
+  equipment_model?: string;
   cabins: Record<string, CabinData>;
 }
 
 export interface CabinData {
-  total_seats: number;
-  sold_seats: number;
-  available_seats: number;
-  load_factor: number;
-  needs_treatment?: boolean;
+  cabin_capacity: number;
+  cabin_total_pax: number;
+  cabin_available: number;
+  expected_load_factor: number;
+  cabin_aadvantage_pax?: number;
+  cabin_total_revenue?: number;
 }
 
 export interface EnrichedPNR {
@@ -50,7 +51,7 @@ export interface EnrichedPNR {
   flight: FlightData;
   reservation: {
     hours_to_departure: number;
-    current_cabin: string;
+    max_bkd_cabin_cd: string;  // F, W, Y
     fare_class: string;
     checked_in: boolean;
   };
@@ -60,12 +61,16 @@ export interface EnrichedPNR {
 // Agent Types
 export type AgentStatus = 'pending' | 'processing' | 'complete' | 'skipped' | 'error';
 
+// Component types for honest architecture: Workflow, Agent, or LLM Call
+export type ComponentType = 'workflow' | 'agent' | 'llm';
+
 export interface AgentConfig {
   id: string;
   name: string;
   short_name: string;
   icon: string;
   description: string;
+  component_type: ComponentType;  // honest architecture classification
 }
 
 export interface AgentResult {

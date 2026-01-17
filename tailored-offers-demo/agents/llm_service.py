@@ -159,6 +159,91 @@ def is_llm_available() -> bool:
     return bool(os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
 
 
+def should_use_dynamic_reasoning() -> bool:
+    """Check if dynamic LLM-generated reasoning is enabled."""
+    # Enable by default if LLM is available, can override with env var
+    env_setting = os.getenv("USE_DYNAMIC_REASONING", "").lower()
+    if env_setting == "true":
+        return True
+    if env_setting == "false":
+        return False
+    # Default: use dynamic reasoning if LLM is available
+    return is_llm_available()
+
+
+def generate_dynamic_reasoning(
+    agent_name: str,
+    data_used: dict,
+    decision: str,
+    decision_details: dict,
+    context: str = ""
+) -> str:
+    """
+    Generate natural-sounding reasoning text using an LLM.
+
+    This keeps the DECISION as rules-based (fast, deterministic),
+    but uses an LLM to EXPLAIN the decision in natural language.
+
+    Args:
+        agent_name: Name of the agent (e.g., "Customer Intelligence Agent")
+        data_used: Dict of data sources and values used
+        decision: The decision made (e.g., "ELIGIBLE", "NOT ELIGIBLE")
+        decision_details: Additional details about the decision
+        context: Optional additional context
+
+    Returns:
+        Natural language explanation of the decision
+    """
+    if not should_use_dynamic_reasoning():
+        return None  # Caller should use templated reasoning
+
+    llm = get_llm(temperature=0.3)  # Lower temperature for consistent explanations
+
+    # Format data_used into readable text
+    data_text = _format_data_used(data_used)
+
+    prompt = f"""You are explaining a decision made by the {agent_name} in an airline offer system.
+
+DATA USED:
+{data_text}
+
+DECISION: {decision}
+DECISION DETAILS: {decision_details}
+
+{f"ADDITIONAL CONTEXT: {context}" if context else ""}
+
+Write a clear, conversational explanation of this decision. Use these guidelines:
+1. Start with "📊 DATA USED" section showing what data was pulled from which systems
+2. Then "🔍 ANALYSIS" explaining the key factors considered
+3. Then "✅ DECISION" with the verdict
+4. End with "📍 IN SIMPLE TERMS" - a 2-3 sentence plain English summary
+5. Add "💡 WHY THIS AGENT MATTERS" - explain what could go wrong without this check
+
+Use the actual data values provided. Be specific, not generic.
+Format with clear sections and bullet points.
+Keep it concise but informative."""
+
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        return response.content
+    except Exception as e:
+        print(f"LLM reasoning generation failed: {e}")
+        return None  # Caller should fall back to templated reasoning
+
+
+def _format_data_used(data_used: dict) -> str:
+    """Format data_used dict into readable text for the LLM prompt."""
+    lines = []
+    for source, data in data_used.items():
+        lines.append(f"\n{source}:")
+        if isinstance(data, dict):
+            for key, value in data.items():
+                lines.append(f"  - {key}: {value}")
+        else:
+            lines.append(f"  - {data}")
+    return "\n".join(lines)
+
+
 def get_llm_provider_name() -> str:
     """Get the name of the configured LLM provider."""
     if os.getenv("OPENAI_API_KEY"):

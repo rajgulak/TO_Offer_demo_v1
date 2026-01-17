@@ -1,4 +1,4 @@
-import type { AgentStatus } from '../types';
+import type { AgentStatus, ComponentType } from '../types';
 
 interface Props {
   id: string;
@@ -10,6 +10,7 @@ interface Props {
   isSelected: boolean;
   onClick: () => void;
   step: number;
+  componentType?: ComponentType;  // workflow, agent, or llm
 }
 
 const icons: Record<string, string> = {
@@ -37,7 +38,20 @@ const statusIcons: Record<AgentStatus, string> = {
   error: '✗',
 };
 
-export function AgentNode({ id: _id, name: _name, shortName, icon, status, summary, isSelected, onClick, step }: Props) {
+// Component type labels and styling for honest architecture
+const componentTypeLabels: Record<ComponentType, string> = {
+  workflow: '⚡',
+  agent: '🧠',
+  llm: '✨',
+};
+
+const componentTypeBadgeStyles: Record<ComponentType, string> = {
+  workflow: 'bg-slate-600 text-white',
+  agent: 'bg-blue-600 text-white',
+  llm: 'bg-purple-600 text-white',
+};
+
+export function AgentNode({ id: _id, name: _name, shortName, icon, status, summary, isSelected, onClick, step, componentType = 'workflow' }: Props) {
   // _id and _name are available for future use (e.g., accessibility, data attributes)
   void _id; void _name;
   return (
@@ -51,6 +65,11 @@ export function AgentNode({ id: _id, name: _name, shortName, icon, status, summa
       {/* Step number */}
       <div className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-gray-700 text-white text-xs flex items-center justify-center font-bold">
         {step}
+      </div>
+
+      {/* Component type badge (top right) */}
+      <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full text-xs flex items-center justify-center font-bold ${componentTypeBadgeStyles[componentType]}`}>
+        {componentTypeLabels[componentType]}
       </div>
 
       {/* Main node */}

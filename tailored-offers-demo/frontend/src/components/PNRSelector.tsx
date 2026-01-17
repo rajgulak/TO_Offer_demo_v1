@@ -22,6 +22,7 @@ const scenarioColors: Record<string, string> = {
   'International': 'bg-indigo-100 text-indigo-700',
   'Cold Start': 'bg-orange-100 text-orange-700',
   'Suppressed': 'bg-red-100 text-red-700',
+  'Price Sensitive': 'bg-purple-100 text-purple-700',
 };
 
 // What each scenario demonstrates about agent capabilities (in plain English!)
@@ -32,9 +33,9 @@ const scenarioDescriptions: Record<string, { demonstrates: string; expectedOutco
     keyInsight: 'Agent did the math: 40% chance × $171 = $68 avg revenue beats 60% chance × $89 = $53 for cheaper MCE',
   },
   'XYZ789': {
-    demonstrates: 'Customer who looked at our offer before but didn\'t buy',
-    expectedOutcome: '✅ Offer Business Class for $165 (discounted!)',
-    keyInsight: 'Agents noticed they opened our last offer but didn\'t buy → try a lower price this time',
+    demonstrates: 'Frequent business traveler with high upgrade history',
+    expectedOutcome: '✅ Offer Business Class for $179 via push notification',
+    keyInsight: 'ML model sees 75% buy probability at $299, but 82% at $249 → Agent picks optimal EV price point',
   },
   'LMN456': {
     demonstrates: 'Our most valuable customer - needs VIP treatment',
@@ -50,6 +51,11 @@ const scenarioDescriptions: Record<string, { demonstrates: string; expectedOutco
     demonstrates: 'Customer who recently complained - should we contact them?',
     expectedOutcome: '❌ NO OFFER sent',
     keyInsight: 'Agents found this customer complained 5 days ago - contacting them now would make things WORSE',
+  },
+  'JKL789': {
+    demonstrates: 'Price-sensitive customer - agent optimizes discount level',
+    expectedOutcome: '✅ Offer Business Class for $159 (20% discount!)',
+    keyInsight: 'ML shows 25% buy chance at $199 but 48% at $159 → Agent applies max discount to maximize expected value',
   },
 };
 

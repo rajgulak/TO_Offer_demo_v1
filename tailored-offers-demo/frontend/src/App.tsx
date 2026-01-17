@@ -6,16 +6,19 @@ import { ContextPanel } from './components/ContextPanel';
 import { PipelineVisualization } from './components/PipelineVisualization';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { FinalDecisionPanel } from './components/FinalDecisionPanel';
+import { InteractiveTutorial } from './components/InteractiveTutorial';
 import { useSSE } from './hooks/useSSE';
 import type { PNRSummary, EnrichedPNR, AgentResult, FinalDecision } from './types';
 
+// TO Offer Prototype: 4 Workflows + 1 Agent + 1 LLM Call
+// Only Offer Orchestration is a true "agent" (complex multi-factor decision with explainability)
 const AGENT_CONFIG = [
-  { id: 'customer_intelligence', name: 'Customer Intelligence', short_name: 'Customer', icon: 'brain', description: 'Analyzes customer eligibility and segmentation' },
-  { id: 'flight_optimization', name: 'Flight Optimization', short_name: 'Flight', icon: 'chart', description: 'Evaluates cabin inventory and flight priority' },
-  { id: 'offer_orchestration', name: 'Offer Orchestration', short_name: 'Offer', icon: 'scale', description: 'Selects optimal offer using expected value' },
-  { id: 'personalization', name: 'Personalization', short_name: 'Message', icon: 'sparkles', description: 'Generates personalized messaging' },
-  { id: 'channel_timing', name: 'Channel & Timing', short_name: 'Channel', icon: 'phone', description: 'Optimizes delivery channel and timing' },
-  { id: 'measurement', name: 'Measurement & Learning', short_name: 'Measure', icon: 'trending', description: 'Assigns A/B test groups and tracking' },
+  { id: 'customer_intelligence', name: 'Customer Intelligence', short_name: 'Customer', icon: 'brain', description: 'Checks eligibility (3 yes/no rules)', component_type: 'workflow' as const },
+  { id: 'flight_optimization', name: 'Flight Optimization', short_name: 'Flight', icon: 'chart', description: 'Looks up cabin inventory data', component_type: 'workflow' as const },
+  { id: 'offer_orchestration', name: 'Offer Orchestration', short_name: 'Offer', icon: 'scale', description: 'Complex 15+ factor decision - THE ONLY AGENT', component_type: 'agent' as const },
+  { id: 'personalization', name: 'Personalization', short_name: 'Message', icon: 'sparkles', description: 'LLM generates personalized message', component_type: 'llm' as const },
+  { id: 'channel_timing', name: 'Channel & Timing', short_name: 'Channel', icon: 'phone', description: 'Rule-based channel selection', component_type: 'workflow' as const },
+  { id: 'measurement', name: 'Measurement & Learning', short_name: 'Measure', icon: 'trending', description: 'Random A/B assignment', component_type: 'workflow' as const },
 ];
 
 // Use environment variable or default to localhost for dev
@@ -30,6 +33,7 @@ function App() {
   const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
   const [selectedAgentTab, setSelectedAgentTab] = useState<string | null>(null);
   const [finalDecision, setFinalDecision] = useState<FinalDecision | null>(null);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
   const { startEvaluation } = useSSE();
 
@@ -133,7 +137,7 @@ function App() {
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Architecture Overview - Collapsible */}
-        <ArchitectureOverview />
+        <ArchitectureOverview onOpenTutorial={() => setIsTutorialOpen(true)} />
 
         {/* PNR Selector */}
         <PNRSelector
@@ -173,8 +177,14 @@ function App() {
 
       {/* Footer */}
       <footer className="text-center py-4 text-sm text-gray-500">
-        Tailored Offers Demo - 6-Agent Agentic AI Architecture
+        TO Offer Prototype - 4 Workflows + 1 Agent + 1 LLM Call
       </footer>
+
+      {/* Interactive Tutorial Modal */}
+      <InteractiveTutorial
+        isOpen={isTutorialOpen}
+        onClose={() => setIsTutorialOpen(false)}
+      />
     </div>
   );
 }

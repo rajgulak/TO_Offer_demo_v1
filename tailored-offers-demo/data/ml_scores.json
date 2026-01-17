@@ -1,5 +1,5 @@
 {
-  "description": "Simulated ML model P(buy) scores - In production, these come from the ML team's model",
+  "description": "Simulated ML model P(buy) scores by product and price - In production, these come from the ML team's model",
   "scores": {
     "ABC123": {
       "pnr_locator": "ABC123",
@@ -9,17 +9,30 @@
       "score_timestamp": "2026-01-11T10:00:00Z",
       "propensity_scores": {
         "IU_BUSINESS": {
-          "p_buy": 0.68,
+          "price_points": {
+            "299": { "p_buy": 0.42 },
+            "249": { "p_buy": 0.55 },
+            "199": { "p_buy": 0.68 },
+            "149": { "p_buy": 0.79 }
+          },
           "confidence": 0.85,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
         },
-        "IU_PREMIUM_ECONOMY": {
-          "p_buy": 0.55,
-          "confidence": 0.82,
+        "IU_FIRST": {
+          "price_points": {
+            "599": { "p_buy": 0.18 },
+            "499": { "p_buy": 0.28 },
+            "399": { "p_buy": 0.38 }
+          },
+          "confidence": 0.72,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
         },
         "MCE": {
-          "p_buy": 0.82,
+          "price_points": {
+            "89": { "p_buy": 0.72 },
+            "69": { "p_buy": 0.82 },
+            "49": { "p_buy": 0.91 }
+          },
           "confidence": 0.91,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
         }
@@ -35,17 +48,30 @@
       "score_timestamp": "2026-01-11T10:00:00Z",
       "propensity_scores": {
         "IU_BUSINESS": {
-          "p_buy": 0.75,
+          "price_points": {
+            "349": { "p_buy": 0.65 },
+            "299": { "p_buy": 0.75 },
+            "249": { "p_buy": 0.82 },
+            "199": { "p_buy": 0.88 }
+          },
           "confidence": 0.92,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose"]
         },
-        "IU_PREMIUM_ECONOMY": {
-          "p_buy": 0.0,
-          "confidence": 0.0,
-          "features_used": []
+        "IU_FIRST": {
+          "price_points": {
+            "699": { "p_buy": 0.45 },
+            "599": { "p_buy": 0.55 },
+            "499": { "p_buy": 0.65 }
+          },
+          "confidence": 0.88,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose"]
         },
         "MCE": {
-          "p_buy": 0.45,
+          "price_points": {
+            "89": { "p_buy": 0.35 },
+            "69": { "p_buy": 0.45 },
+            "49": { "p_buy": 0.55 }
+          },
           "confidence": 0.88,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
         }
@@ -61,19 +87,36 @@
       "score_timestamp": "2026-01-11T10:00:00Z",
       "propensity_scores": {
         "IU_BUSINESS": {
-          "p_buy": 0.89,
+          "price_points": {
+            "870": { "p_buy": 0.72 },
+            "820": { "p_buy": 0.78 },
+            "770": { "p_buy": 0.85 },
+            "720": { "p_buy": 0.89 },
+            "670": { "p_buy": 0.92 }
+          },
           "confidence": 0.95,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose", "international"],
+          "note": "Executive Platinum with high upgrade acceptance history"
+        },
+        "IU_FIRST": {
+          "price_points": {
+            "1299": { "p_buy": 0.55 },
+            "1199": { "p_buy": 0.62 },
+            "1099": { "p_buy": 0.70 },
+            "999": { "p_buy": 0.78 }
+          },
+          "confidence": 0.93,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose", "international"]
         },
-        "IU_PREMIUM_ECONOMY": {
-          "p_buy": 0.0,
-          "confidence": 0.0,
-          "features_used": []
-        },
         "MCE": {
-          "p_buy": 0.0,
-          "confidence": 0.0,
-          "features_used": []
+          "price_points": {
+            "89": { "p_buy": 0.15 },
+            "69": { "p_buy": 0.20 },
+            "49": { "p_buy": 0.25 }
+          },
+          "confidence": 0.70,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"],
+          "note": "Low MCE interest - customer already in Premium Economy, prefers Business"
         }
       },
       "segment": "elite_business",
@@ -87,19 +130,31 @@
       "score_timestamp": "2026-01-11T10:00:00Z",
       "propensity_scores": {
         "IU_BUSINESS": {
-          "p_buy": null,
-          "confidence": 0.0,
-          "features_used": [],
-          "error": "cold_start_insufficient_history"
+          "price_points": {
+            "199": { "p_buy": 0.12 },
+            "149": { "p_buy": 0.18 },
+            "99": { "p_buy": 0.25 }
+          },
+          "confidence": 0.45,
+          "features_used": ["fare_class", "days_to_departure"],
+          "note": "cold_start - limited customer history"
         },
-        "IU_PREMIUM_ECONOMY": {
-          "p_buy": 0.0,
-          "confidence": 0.0,
-          "features_used": []
+        "IU_FIRST": {
+          "price_points": {
+            "399": { "p_buy": 0.05 },
+            "299": { "p_buy": 0.08 }
+          },
+          "confidence": 0.35,
+          "features_used": ["fare_class", "days_to_departure"],
+          "note": "cold_start - limited customer history"
         },
         "MCE": {
-          "p_buy": 0.35,
-          "confidence": 0.45,
+          "price_points": {
+            "69": { "p_buy": 0.25 },
+            "49": { "p_buy": 0.35 },
+            "29": { "p_buy": 0.48 }
+          },
+          "confidence": 0.55,
           "features_used": ["fare_class", "days_to_departure"]
         }
       },
@@ -114,25 +169,79 @@
       "score_timestamp": "2026-01-11T10:00:00Z",
       "propensity_scores": {
         "IU_BUSINESS": {
-          "p_buy": 0.52,
+          "price_points": {
+            "299": { "p_buy": 0.32 },
+            "249": { "p_buy": 0.42 },
+            "199": { "p_buy": 0.52 },
+            "149": { "p_buy": 0.62 }
+          },
           "confidence": 0.78,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
         },
-        "IU_PREMIUM_ECONOMY": {
-          "p_buy": 0.48,
-          "confidence": 0.75,
+        "IU_FIRST": {
+          "price_points": {
+            "499": { "p_buy": 0.15 },
+            "399": { "p_buy": 0.22 },
+            "299": { "p_buy": 0.30 }
+          },
+          "confidence": 0.68,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
         },
         "MCE": {
-          "p_buy": 0.71,
+          "price_points": {
+            "89": { "p_buy": 0.58 },
+            "69": { "p_buy": 0.71 },
+            "49": { "p_buy": 0.82 }
+          },
           "confidence": 0.86,
           "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
         }
       },
-      "segment": "mid_value_leisure",
+      "segment": "mid_value_mixed",
       "price_sensitivity": "medium",
       "suppression_flag": true,
       "suppression_reason": "recent_complaint"
+    },
+    "JKL789": {
+      "pnr_locator": "JKL789",
+      "customer_id": "CUST006",
+      "flight_id": "AA2847",
+      "model_version": "v2.1",
+      "score_timestamp": "2026-01-11T10:00:00Z",
+      "propensity_scores": {
+        "IU_BUSINESS": {
+          "price_points": {
+            "199": { "p_buy": 0.25 },
+            "179": { "p_buy": 0.35 },
+            "159": { "p_buy": 0.48 }
+          },
+          "confidence": 0.82,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "price_sensitivity", "avg_upgrade_spend"],
+          "note": "Highly price-sensitive - acceptance rate jumps significantly at discounted prices"
+        },
+        "IU_FIRST": {
+          "price_points": {
+            "499": { "p_buy": 0.05 },
+            "399": { "p_buy": 0.08 },
+            "299": { "p_buy": 0.12 }
+          },
+          "confidence": 0.65,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf"],
+          "note": "Very low interest in First Class even at discount"
+        },
+        "MCE": {
+          "price_points": {
+            "39": { "p_buy": 0.55 },
+            "29": { "p_buy": 0.72 },
+            "19": { "p_buy": 0.85 }
+          },
+          "confidence": 0.88,
+          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"],
+          "note": "Strong MCE interest at low price points"
+        }
+      },
+      "segment": "budget_leisure",
+      "price_sensitivity": "high"
     }
   }
 }

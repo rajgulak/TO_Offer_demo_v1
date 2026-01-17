@@ -10,9 +10,9 @@ export function Header() {
           </div>
         </div>
         <div className="flex items-center space-x-2 text-sm">
-          <span className="bg-white/20 px-3 py-1 rounded-full">6 Agents</span>
-          <span className="bg-emerald-500/80 px-3 py-1 rounded-full">Existing Systems Unchanged</span>
-          <span className="bg-blue-500/80 px-3 py-1 rounded-full">MCP Tools</span>
+          <span className="bg-slate-500/80 px-3 py-1 rounded-full">4 Workflows</span>
+          <span className="bg-blue-500/80 px-3 py-1 rounded-full">1 Agent</span>
+          <span className="bg-purple-500/80 px-3 py-1 rounded-full">1 LLM Call</span>
         </div>
       </div>
     </header>

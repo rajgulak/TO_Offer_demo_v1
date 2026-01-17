@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AgentResult } from '../types';
+import type { AgentResult, ComponentType } from '../types';
 import { PromptEditor } from './PromptEditor';
 
 interface AgentConfig {
@@ -8,6 +8,7 @@ interface AgentConfig {
   short_name: string;
   icon: string;
   description: string;
+  component_type: ComponentType;
 }
 
 interface Props {
@@ -52,38 +53,51 @@ const agentTools: Record<string, { tool: string; system: string }[]> = {
   ],
 };
 
-// Agent execution mode - LLM-powered vs Rules-based
-const agentMode: Record<string, { type: 'llm' | 'rules'; description: string }> = {
+// TO Offer Prototype: Component type details
+// Only Offer Orchestration is a true "agent" (complex multi-factor decision with explainability)
+const componentInfo: Record<string, { type: ComponentType; label: string; description: string; icon: string }> = {
   customer_intelligence: {
-    type: 'rules',
-    description: 'Deterministic eligibility checks'
+    type: 'workflow',
+    label: 'Workflow',
+    description: '3 simple yes/no checks - just log the result',
+    icon: '⚡'
   },
   flight_optimization: {
-    type: 'rules',
-    description: 'Inventory analysis with business rules'
+    type: 'workflow',
+    label: 'Workflow',
+    description: 'Data lookup - no decision needed',
+    icon: '⚡'
   },
   offer_orchestration: {
-    type: 'llm',
-    description: 'LLM reasoning for strategic offer selection'
+    type: 'agent',
+    label: 'Agent (The Only One!)',
+    description: 'Complex 15+ factor decision - needs full explainability',
+    icon: '🧠'
   },
   personalization: {
     type: 'llm',
-    description: 'GenAI for personalized message creation'
+    label: 'LLM Call',
+    description: 'Simple prompt → text generation (not a decision)',
+    icon: '✨'
   },
   channel_timing: {
-    type: 'rules',
-    description: 'Rules-based channel selection'
+    type: 'workflow',
+    label: 'Workflow',
+    description: 'Rule-based channel selection',
+    icon: '⚡'
   },
   measurement: {
-    type: 'rules',
-    description: 'Deterministic A/B assignment'
+    type: 'workflow',
+    label: 'Workflow',
+    description: 'Random A/B assignment - no reasoning needed',
+    icon: '⚡'
   },
 };
 
 export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSelectTab }: Props) {
   const selectedResult = selectedAgentTab ? agentResults[selectedAgentTab] : null;
   const selectedAgent = agents.find(a => a.id === selectedAgentTab);
-  const selectedMode = selectedAgentTab ? agentMode[selectedAgentTab] : null;
+  const selectedComponent = selectedAgentTab ? componentInfo[selectedAgentTab] : null;
   const [showPromptEditor, setShowPromptEditor] = useState(false);
 
   return (
@@ -94,7 +108,14 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
           const result = agentResults[agent.id];
           const hasResult = !!result;
           const isSelected = selectedAgentTab === agent.id;
-          const mode = agentMode[agent.id];
+          const compInfo = componentInfo[agent.id];
+
+          // Badge styles based on component type
+          const badgeStyles = {
+            workflow: 'bg-slate-100 text-slate-600',
+            agent: 'bg-blue-100 text-blue-600',
+            llm: 'bg-purple-100 text-purple-600',
+          };
 
           return (
             <button
@@ -114,9 +135,9 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
             >
               <span>{icons[agent.icon]}</span>
               <span>{agent.short_name}</span>
-              {mode?.type === 'llm' && (
-                <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">AI</span>
-              )}
+              <span className={`text-xs px-1.5 py-0.5 rounded ${badgeStyles[compInfo?.type || 'workflow']}`}>
+                {compInfo?.icon}
+              </span>
               {result?.status === 'complete' && (
                 <span className="text-emerald-500">✓</span>
               )}
@@ -142,14 +163,13 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
               <div>
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                   {icons[selectedAgent?.icon || '']} {selectedResult.agent_name}
-                  {selectedMode?.type === 'llm' && (
-                    <span className="text-sm bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
-                      🧠 LLM-Powered
-                    </span>
-                  )}
-                  {selectedMode?.type === 'rules' && (
-                    <span className="text-sm bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                      ⚡ Rules-Based
+                  {selectedComponent && (
+                    <span className={`text-sm px-2 py-0.5 rounded-full ${
+                      selectedComponent.type === 'agent' ? 'bg-blue-100 text-blue-600' :
+                      selectedComponent.type === 'llm' ? 'bg-purple-100 text-purple-600' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {selectedComponent.icon} {selectedComponent.label}
                     </span>
                   )}
                 </h3>
@@ -169,34 +189,38 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
               </div>
             </div>
 
-            {/* Agent Mode Info */}
-            {selectedMode && (
+            {/* Component Type Info */}
+            {selectedComponent && (
               <div className={`rounded-lg p-3 ${
-                selectedMode.type === 'llm'
+                selectedComponent.type === 'agent'
                   ? 'bg-blue-50 border border-blue-200'
-                  : 'bg-slate-50 border border-slate-200'
+                  : selectedComponent.type === 'llm'
+                    ? 'bg-purple-50 border border-purple-200'
+                    : 'bg-slate-50 border border-slate-200'
               }`}>
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">
-                    {selectedMode.type === 'llm' ? '🧠' : '⚡'}
+                    {selectedComponent.icon}
                   </span>
                   <div>
                     <div className={`text-sm font-semibold ${
-                      selectedMode.type === 'llm' ? 'text-blue-700' : 'text-slate-700'
+                      selectedComponent.type === 'agent' ? 'text-blue-700' :
+                      selectedComponent.type === 'llm' ? 'text-purple-700' :
+                      'text-slate-700'
                     }`}>
-                      {selectedMode.type === 'llm' ? 'LLM-Powered Agent' : 'Rules-Based Agent'}
+                      {selectedComponent.label}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {selectedMode.description}
+                      {selectedComponent.description}
                     </div>
                   </div>
-                  {selectedMode.type === 'llm' && (
+                  {(selectedComponent.type === 'agent' || selectedComponent.type === 'llm') && (
                     <button
                       onClick={() => setShowPromptEditor(!showPromptEditor)}
                       className={`ml-auto text-xs px-3 py-1.5 rounded transition-colors ${
                         showPromptEditor
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                          ? selectedComponent.type === 'agent' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white'
+                          : selectedComponent.type === 'agent' ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
                       }`}
                     >
                       {showPromptEditor ? '✓ Viewing Prompt' : '📝 View/Edit Prompt'}
@@ -206,8 +230,8 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
               </div>
             )}
 
-            {/* Prompt Editor for LLM agents */}
-            {selectedMode?.type === 'llm' && showPromptEditor && selectedAgentTab && (
+            {/* Prompt Editor for Agent and LLM components */}
+            {(selectedComponent?.type === 'agent' || selectedComponent?.type === 'llm') && showPromptEditor && selectedAgentTab && (
               <PromptEditor
                 agentId={selectedAgentTab}
                 agentName={selectedResult?.agent_name || ''}
@@ -233,22 +257,36 @@ export function AgentDetailPanel({ agents, agentResults, selectedAgentTab, onSel
               </div>
             )}
 
-            {/* Reasoning */}
+            {/* Reasoning / Output */}
             <div>
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                {selectedMode?.type === 'llm'
-                  ? '🧠 LLM Reasoning (Dynamic, context-aware analysis)'
-                  : '⚡ Rules Execution (Deterministic logic)'}
+                {selectedComponent?.type === 'agent'
+                  ? '🧠 Agent Reasoning (Complex decision with full explainability)'
+                  : selectedComponent?.type === 'llm'
+                    ? '✨ LLM Output (Generated text)'
+                    : '⚡ Workflow Execution (Simple logic, just logging)'}
               </div>
               <div className="bg-slate-800 rounded-lg p-4 max-h-64 overflow-y-auto custom-scrollbar">
                 <pre className="reasoning-display text-slate-100">
                   {selectedResult.reasoning || 'No reasoning available'}
                 </pre>
               </div>
-              {selectedMode?.type === 'llm' && (
+              {selectedComponent?.type === 'agent' && (
                 <div className="mt-2 text-xs text-blue-600 flex items-center gap-1">
                   <span>💡</span>
-                  <span>This reasoning was generated by an LLM, not hard-coded rules</span>
+                  <span>This is our ONLY agent - complex multi-factor decision needing full explainability</span>
+                </div>
+              )}
+              {selectedComponent?.type === 'llm' && (
+                <div className="mt-2 text-xs text-purple-600 flex items-center gap-1">
+                  <span>✨</span>
+                  <span>Simple LLM call for text generation - not a decision, just output</span>
+                </div>
+              )}
+              {selectedComponent?.type === 'workflow' && (
+                <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
+                  <span>⚡</span>
+                  <span>Simple workflow - no agent pattern needed, just logging the result</span>
                 </div>
               )}
             </div>

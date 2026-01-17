@@ -7,6 +7,7 @@ Decisions: Who should receive offers, customer segmentation
 """
 from typing import Dict, Any
 from .state import AgentState
+from .llm_service import generate_dynamic_reasoning
 
 
 class CustomerIntelligenceAgent:
@@ -44,10 +45,10 @@ class CustomerIntelligenceAgent:
         # Extract customer attributes
         first_name = customer.get("first_name", "Customer")
         loyalty_tier = customer.get("loyalty_tier", "General")
-        tenure_days = customer.get("tenure_days", 0)
+        aadv_tenure_days = customer.get("aadv_tenure_days", 0)
         suppression = customer.get("suppression", {})
         historical = customer.get("historical_upgrades", {})
-        annual_revenue = customer.get("annual_revenue", 0)
+        flight_revenue_amt_history = customer.get("flight_revenue_amt_history", 0)
         consent = customer.get("marketing_consent", {})
 
         # ========== DATA USED SECTION ==========
@@ -56,8 +57,8 @@ class CustomerIntelligenceAgent:
         reasoning_parts.append("┌─ get_customer_profile() → AADV Database")
         reasoning_parts.append(f"│  • Customer: {first_name}")
         reasoning_parts.append(f"│  • Loyalty Tier: {loyalty_tier}")
-        reasoning_parts.append(f"│  • Tenure: {tenure_days} days ({tenure_days // 365} years)")
-        reasoning_parts.append(f"│  • Annual Revenue: ${annual_revenue:,}")
+        reasoning_parts.append(f"│  • Tenure: {aadv_tenure_days} days ({aadv_tenure_days // 365} years)")
+        reasoning_parts.append(f"│  • Annual Revenue: ${flight_revenue_amt_history:,}")
         reasoning_parts.append(f"│  • Past Upgrade Acceptance: {historical.get('acceptance_rate', 0):.0%}")
         reasoning_parts.append(f"│  • Avg Upgrade Spend: ${historical.get('avg_upgrade_spend', 0)}")
         reasoning_parts.append("│")
@@ -139,11 +140,14 @@ class CustomerIntelligenceAgent:
         reasoning_parts.append("")
 
         # Explain segment determination
+        tier_names = {"E": "Executive Platinum", "C": "Concierge Key", "T": "Platinum Pro",
+                      "P": "Platinum", "G": "Gold", "R": "AAdvantage", "N": "Non-member"}
+        tier_display = tier_names.get(loyalty_tier, loyalty_tier)
         reasoning_parts.append(f"   1. Customer Segment: {segment.upper().replace('_', ' ')}")
-        if loyalty_tier in ["Executive Platinum", "Platinum Pro"]:
-            reasoning_parts.append(f"      → High-tier loyalty ({loyalty_tier}) indicates frequent flyer")
-        elif loyalty_tier in ["Platinum", "Gold"]:
-            reasoning_parts.append(f"      → Mid-tier loyalty ({loyalty_tier}) shows engagement potential")
+        if loyalty_tier in ["E", "C", "T"]:
+            reasoning_parts.append(f"      → High-tier loyalty ({tier_display}) indicates frequent flyer")
+        elif loyalty_tier in ["P", "G"]:
+            reasoning_parts.append(f"      → Mid-tier loyalty ({tier_display}) shows engagement potential")
         else:
             reasoning_parts.append(f"      → Standard tier - will use ML scores to guide offer")
 
@@ -183,40 +187,80 @@ class CustomerIntelligenceAgent:
                 reasoning_parts.append(f"   3. ML Model Confidence: {max_confidence:.0%}")
                 reasoning_parts.append(f"      → Model has good signal for {best_offer} offer")
 
-        # ========== DECISION SECTION ==========
-        reasoning_parts.append("")
-        reasoning_parts.append("─" * 50)
-        reasoning_parts.append("")
-        reasoning_parts.append("✅ DECISION: ELIGIBLE FOR OFFERS")
-        reasoning_parts.append("")
-        reasoning_parts.append("📍 IN SIMPLE TERMS:")
-        reasoning_parts.append(f"   {first_name} is a good candidate for upgrade offers because:")
-        reasoning_parts.append(f"   • They're not on our \"do not contact\" list")
-        reasoning_parts.append(f"   • They've said yes to receiving marketing messages")
-        reasoning_parts.append(f"   • They spend ${annual_revenue:,}/year with us - a valuable customer")
-        if acceptance_rate > 0:
-            reasoning_parts.append(f"   • They've said YES to {acceptance_rate:.0%} of past upgrade offers")
+        # ========== TRY DYNAMIC LLM REASONING ==========
+        # Collect structured data for LLM
+        data_used = {
+            "get_customer_profile() → AADV Database": {
+                "Customer": first_name,
+                "Loyalty Tier": loyalty_tier,
+                "Tenure": f"{aadv_tenure_days} days ({aadv_tenure_days // 365} years)",
+                "Annual Revenue": f"${flight_revenue_amt_history:,}",
+                "Past Upgrade Acceptance": f"{acceptance_rate:.0%}",
+                "Avg Upgrade Spend": f"${historical.get('avg_upgrade_spend', 0)}"
+            },
+            "get_suppression_status() → CRM System": {
+                "Is Suppressed": "No"
+            },
+            "Marketing Consent (from Profile)": {
+                "Email Consent": "Yes" if consent.get('email') else "No",
+                "Push Consent": "Yes" if consent.get('push') else "No"
+            }
+        }
 
-        # ========== WHY AGENTS MATTER ==========
-        reasoning_parts.append("")
-        reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
-        reasoning_parts.append("   Without this agent, a simple rule might just check:")
-        reasoning_parts.append("   \"Is loyalty tier Gold or above? → Send offer\"")
-        reasoning_parts.append("")
-        reasoning_parts.append("   But this agent checked 3 DIFFERENT SYSTEMS:")
-        reasoning_parts.append("   • AADV Database → Customer profile & history")
-        reasoning_parts.append("   • CRM System → Are they upset with us?")
-        reasoning_parts.append("   • Consent Database → Can we legally contact them?")
-        reasoning_parts.append("")
-        reasoning_parts.append("   This prevents embarrassing mistakes like sending offers to")
-        reasoning_parts.append("   customers who just filed a complaint yesterday.")
+        decision_details = {
+            "customer_name": first_name,
+            "segment": segment,
+            "acceptance_rate": f"{acceptance_rate:.0%}",
+            "flight_revenue_amt_history": f"${flight_revenue_amt_history:,}",
+            "loyalty_tier": loyalty_tier
+        }
 
-        # Build detailed reasoning
-        full_reasoning = "\n".join(reasoning_parts)
+        # Try dynamic LLM-generated reasoning
+        dynamic_reasoning = generate_dynamic_reasoning(
+            agent_name=self.name,
+            data_used=data_used,
+            decision="ELIGIBLE FOR OFFERS",
+            decision_details=decision_details,
+            context=f"Customer segment: {segment}. This is a rules-based eligibility check."
+        )
+
+        if dynamic_reasoning:
+            full_reasoning = dynamic_reasoning
+        else:
+            # Fall back to templated reasoning
+            # ========== DECISION SECTION ==========
+            reasoning_parts.append("")
+            reasoning_parts.append("─" * 50)
+            reasoning_parts.append("")
+            reasoning_parts.append("✅ DECISION: ELIGIBLE FOR OFFERS")
+            reasoning_parts.append("")
+            reasoning_parts.append("📍 IN SIMPLE TERMS:")
+            reasoning_parts.append(f"   {first_name} is a good candidate for upgrade offers because:")
+            reasoning_parts.append(f"   • They're not on our \"do not contact\" list")
+            reasoning_parts.append(f"   • They've said yes to receiving marketing messages")
+            reasoning_parts.append(f"   • They spend ${flight_revenue_amt_history:,}/year with us - a valuable customer")
+            if acceptance_rate > 0:
+                reasoning_parts.append(f"   • They've said YES to {acceptance_rate:.0%} of past upgrade offers")
+
+            # ========== WHY AGENTS MATTER ==========
+            reasoning_parts.append("")
+            reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
+            reasoning_parts.append("   Without this agent, a simple rule might just check:")
+            reasoning_parts.append("   \"Is loyalty tier Gold or above? → Send offer\"")
+            reasoning_parts.append("")
+            reasoning_parts.append("   But this agent checked 3 DIFFERENT SYSTEMS:")
+            reasoning_parts.append("   • AADV Database → Customer profile & history")
+            reasoning_parts.append("   • CRM System → Are they upset with us?")
+            reasoning_parts.append("   • Consent Database → Can we legally contact them?")
+            reasoning_parts.append("")
+            reasoning_parts.append("   This prevents embarrassing mistakes like sending offers to")
+            reasoning_parts.append("   customers who just filed a complaint yesterday.")
+
+            full_reasoning = "\n".join(reasoning_parts)
 
         # Create trace entry
         trace_entry = (
-            f"{self.name}: {first_name} ({loyalty_tier}, {tenure_days // 365}yr tenure) - "
+            f"{self.name}: {first_name} ({loyalty_tier}, {aadv_tenure_days // 365}yr tenure) - "
             f"ELIGIBLE | Segment: {segment} | "
             f"Historical acceptance: {acceptance_rate:.0%}"
         )
@@ -232,26 +276,26 @@ class CustomerIntelligenceAgent:
     def _determine_segment(self, customer: Dict[str, Any]) -> str:
         """Determine customer segment based on attributes"""
         loyalty_tier = customer.get("loyalty_tier", "General")
-        annual_revenue = customer.get("annual_revenue", 0)
-        travel_pattern = customer.get("travel_pattern", "unknown")
-        tenure_days = customer.get("tenure_days", 0)
+        flight_revenue_amt_history = customer.get("flight_revenue_amt_history", 0)
+        business_trip_likelihood = customer.get("business_trip_likelihood", 0)
+        aadv_tenure_days = customer.get("aadv_tenure_days", 0)
 
-        # High-value segments
-        if loyalty_tier in ["Executive Platinum", "Platinum Pro"]:
-            if annual_revenue > 50000:
+        # High-value segments (E = Executive Platinum, C = Concierge Key, T = Platinum Pro)
+        if loyalty_tier in ["E", "C", "T"]:
+            if flight_revenue_amt_history > 50000:
                 return "elite_business"
             return "frequent_business"
 
-        # Mid-value segments
-        if loyalty_tier in ["Platinum", "Gold"]:
-            if travel_pattern == "business":
+        # Mid-value segments (P = Platinum, G = Gold)
+        if loyalty_tier in ["P", "G"]:
+            if business_trip_likelihood > 0.5:
                 return "mid_value_business"
-            elif annual_revenue > 10000:
+            elif flight_revenue_amt_history > 10000:
                 return "high_value_leisure"
             return "mid_value_leisure"
 
         # New or low-value
-        if tenure_days < 90:
+        if aadv_tenure_days < 90:
             return "new_customer"
 
         return "general"

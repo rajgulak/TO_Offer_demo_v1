@@ -8,6 +8,7 @@ Decisions: Push vs email vs in-app, time of day, campaign cadence
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from .state import AgentState
+from .llm_service import generate_dynamic_reasoning
 
 
 class ChannelTimingAgent:
@@ -189,58 +190,98 @@ class ChannelTimingAgent:
             timezone=timezone
         )
 
-        # ========== DECISION SECTION ==========
-        reasoning_parts.append("")
-        reasoning_parts.append("─" * 50)
-        reasoning_parts.append("")
-
+        # ========== TRY DYNAMIC LLM REASONING ==========
         channel_names = {"push": "Push Notification", "email": "Email", "in_app": "In-App Banner"}
-        reasoning_parts.append(f"✅ DECISION: SEND VIA {channel_names.get(primary_channel, primary_channel).upper()}")
-        reasoning_parts.append(f"   When: {send_time}")
-        reasoning_parts.append("")
-        reasoning_parts.append("📍 IN SIMPLE TERMS:")
-        if primary_channel == "push":
-            reasoning_parts.append(f"   We're sending a push notification because:")
-            reasoning_parts.append(f"   • This customer opens {engagement.get('push_open_rate', 0.45):.0%} of push messages (good!)")
-            if hours_to_departure <= 48:
-                reasoning_parts.append("   • The flight is soon - push gets attention FAST")
-            reasoning_parts.append("   • They have the app and notifications enabled")
-        elif primary_channel == "email":
-            reasoning_parts.append(f"   We're sending an email because:")
-            reasoning_parts.append(f"   • This customer opens {engagement.get('email_open_rate', 0.22):.0%} of emails")
-            reasoning_parts.append("   • Email lets us show all the upgrade details")
-            reasoning_parts.append("   • They can read it when convenient")
-        elif primary_channel == "in_app":
-            reasoning_parts.append(f"   We're showing an in-app banner because:")
-            reasoning_parts.append("   • Customer uses the app regularly")
-            reasoning_parts.append("   • In-app messages have the highest response rate")
-            reasoning_parts.append("   • They'll see it next time they check their trip")
 
-        reasoning_parts.append("")
-        reasoning_parts.append(f"📍 TIMING: {send_time}")
-        if "NOW" in send_time:
-            reasoning_parts.append("   Sending immediately - flight is coming up soon!")
+        data_used = {
+            "get_consent_status() → Preferences Database": {
+                "Email Consent": "Yes" if consent.get('email') else "No",
+                "Push Consent": "Yes" if consent.get('push') else "No"
+            },
+            "get_engagement_history() → Analytics Platform": {
+                "App Installed": "Yes" if engagement.get('app_installed') else "No",
+                "Email Open Rate": f"{engagement.get('email_open_rate', 0.22):.0%}",
+                "Push Open Rate": f"{engagement.get('push_open_rate', 0.45):.0%}",
+                "Preferred Hours": str(engagement.get('preferred_engagement_hours', [9, 12, 18])),
+                "Last App Open": engagement.get('last_app_open', 'N/A')
+            },
+            "Trip Context": {
+                "Hours to Departure": hours_to_departure,
+                "Customer Timezone": timezone
+            }
+        }
+
+        decision_details = {
+            "selected_channel": channel_names.get(primary_channel, primary_channel),
+            "send_time": send_time,
+            "backup_channel": channel_names.get(backup_channel, backup_channel) if backup_channel else None,
+            "channel_scores": {channel_names.get(k, k): f"{v:.2f}" for k, v in channel_scores.items()}
+        }
+
+        # Try dynamic LLM-generated reasoning
+        dynamic_reasoning = generate_dynamic_reasoning(
+            agent_name=self.name,
+            data_used=data_used,
+            decision=f"SEND VIA {channel_names.get(primary_channel, primary_channel).upper()}",
+            decision_details=decision_details,
+            context="This agent determines the best channel (push, email, in-app) and timing to reach the customer. A simple system blasts everyone with email, but this agent picks the right channel based on consent and engagement history."
+        )
+
+        if dynamic_reasoning:
+            full_reasoning = dynamic_reasoning
         else:
-            reasoning_parts.append(f"   This customer is most active around: {preferred_hours}")
-            reasoning_parts.append("   We'll send when they're likely to see it.")
-
-        if backup_channel:
+            # Fall back to templated reasoning
+            # ========== DECISION SECTION ==========
             reasoning_parts.append("")
-            reasoning_parts.append(f"📍 BACKUP PLAN: {channel_names.get(backup_channel, backup_channel)}")
-            reasoning_parts.append("   If the first message doesn't get through, try this channel.")
+            reasoning_parts.append("─" * 50)
+            reasoning_parts.append("")
 
-        reasoning_parts.append("")
-        reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
-        reasoning_parts.append("   A simple system would just blast everyone with email.")
-        reasoning_parts.append("")
-        reasoning_parts.append("   This agent figured out the BEST way to reach this person:")
-        reasoning_parts.append("   • Checked what channels they've opted into")
-        reasoning_parts.append("   • Looked at their past behavior (what do they respond to?)")
-        reasoning_parts.append("   • Picked the time when they're most likely to engage")
-        reasoning_parts.append("")
-        reasoning_parts.append("   Right message + Right channel + Right time = More sales! 🎯")
+            reasoning_parts.append(f"✅ DECISION: SEND VIA {channel_names.get(primary_channel, primary_channel).upper()}")
+            reasoning_parts.append(f"   When: {send_time}")
+            reasoning_parts.append("")
+            reasoning_parts.append("📍 IN SIMPLE TERMS:")
+            if primary_channel == "push":
+                reasoning_parts.append(f"   We're sending a push notification because:")
+                reasoning_parts.append(f"   • This customer opens {engagement.get('push_open_rate', 0.45):.0%} of push messages (good!)")
+                if hours_to_departure <= 48:
+                    reasoning_parts.append("   • The flight is soon - push gets attention FAST")
+                reasoning_parts.append("   • They have the app and notifications enabled")
+            elif primary_channel == "email":
+                reasoning_parts.append(f"   We're sending an email because:")
+                reasoning_parts.append(f"   • This customer opens {engagement.get('email_open_rate', 0.22):.0%} of emails")
+                reasoning_parts.append("   • Email lets us show all the upgrade details")
+                reasoning_parts.append("   • They can read it when convenient")
+            elif primary_channel == "in_app":
+                reasoning_parts.append(f"   We're showing an in-app banner because:")
+                reasoning_parts.append("   • Customer uses the app regularly")
+                reasoning_parts.append("   • In-app messages have the highest response rate")
+                reasoning_parts.append("   • They'll see it next time they check their trip")
 
-        full_reasoning = "\n".join(reasoning_parts)
+            reasoning_parts.append("")
+            reasoning_parts.append(f"📍 TIMING: {send_time}")
+            if "NOW" in send_time:
+                reasoning_parts.append("   Sending immediately - flight is coming up soon!")
+            else:
+                reasoning_parts.append(f"   This customer is most active around: {preferred_hours}")
+                reasoning_parts.append("   We'll send when they're likely to see it.")
+
+            if backup_channel:
+                reasoning_parts.append("")
+                reasoning_parts.append(f"📍 BACKUP PLAN: {channel_names.get(backup_channel, backup_channel)}")
+                reasoning_parts.append("   If the first message doesn't get through, try this channel.")
+
+            reasoning_parts.append("")
+            reasoning_parts.append("💡 WHY THIS AGENT MATTERS:")
+            reasoning_parts.append("   A simple system would just blast everyone with email.")
+            reasoning_parts.append("")
+            reasoning_parts.append("   This agent figured out the BEST way to reach this person:")
+            reasoning_parts.append("   • Checked what channels they've opted into")
+            reasoning_parts.append("   • Looked at their past behavior (what do they respond to?)")
+            reasoning_parts.append("   • Picked the time when they're most likely to engage")
+            reasoning_parts.append("")
+            reasoning_parts.append("   Right message + Right channel + Right time = More sales! 🎯")
+
+            full_reasoning = "\n".join(reasoning_parts)
 
         trace_entry = (
             f"{self.name}: Channel={primary_channel.upper()} | "
