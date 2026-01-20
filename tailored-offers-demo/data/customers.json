@@ -1,5 +1,6 @@
 [
   {
+    "_scenario": "EASY CHOICE - Standard Gold member, clear Business EV winner",
     "lylty_acct_id": "1234567890",
     "party_id": "P001234567",
     "name_prefix": "Ms",
@@ -46,6 +47,7 @@
     }
   },
   {
+    "_scenario": "CONFIDENCE TRADE-OFF - High value customer BUT ML prediction is unreliable",
     "lylty_acct_id": "9876543210",
     "party_id": "P009876543",
     "name_prefix": "Mr",
@@ -92,6 +94,7 @@
     }
   },
   {
+    "_scenario": "RELATIONSHIP TRADE-OFF - Exec Plat with recent service recovery, needs gentle approach",
     "lylty_acct_id": "5555555555",
     "party_id": "P005555555",
     "name_prefix": "Ms",
@@ -129,6 +132,14 @@
       "recent_complaint": false,
       "last_offer_date": "2026-01-02"
     },
+    "recent_service_recovery": {
+      "had_issue": true,
+      "issue_date": "2026-01-10",
+      "issue_type": "seat_assignment_change",
+      "resolution": "apology_miles_credited",
+      "customer_sentiment": "neutral_recovering",
+      "_note": "NOT suppressed, but agent should consider relationship health"
+    },
     "historical_upgrades": {
       "offers_received": 89,
       "offers_accepted": 52,
@@ -138,52 +149,54 @@
     }
   },
   {
+    "_scenario": "GUARDRAIL: INVENTORY - Good customer, but Flight MCP says 0 seats",
     "lylty_acct_id": "1111111111",
     "party_id": "P001111111",
     "name_prefix": "Mr",
     "first_name": "Michael",
     "last_name": "Brown",
-    "age": 28,
-    "loyalty_tier": "R",
-    "max_loyalty_tier": "R",
-    "aadv_tenure_days": 45,
-    "pgm_enroll_dt": "2025-11-28",
+    "age": 38,
+    "loyalty_tier": "G",
+    "max_loyalty_tier": "G",
+    "aadv_tenure_days": 800,
+    "pgm_enroll_dt": "2024-01-15",
     "home_airport_cd": "MIA",
     "hub_ind": 1,
-    "aadvantage_miles_balance": 2500,
-    "curr_yr_loyalty_point_balance": 1200,
-    "prev_yr_loyalty_point_balance": 0,
-    "cobrand_cardholder_ind": 0,
+    "aadvantage_miles_balance": 35000,
+    "curr_yr_loyalty_point_balance": 18000,
+    "prev_yr_loyalty_point_balance": 12000,
+    "cobrand_cardholder_ind": 1,
     "preferred_communication_channel": "email",
     "opted_out_pii": 0,
-    "business_trip_likelihood": 0.10,
-    "booking_count_history": 1,
-    "days_between_bookings": 0,
-    "days_between_flights": 0,
-    "flight_revenue_amt_history": 400,
-    "flight_redemption_count_history": 0,
-    "ticketed_premium_cabin_bookings": 0,
-    "future_booking_count": 0,
-    "future_revenue_amt": 0,
+    "business_trip_likelihood": 0.60,
+    "booking_count_history": 10,
+    "days_between_bookings": 35,
+    "days_between_flights": 25,
+    "flight_revenue_amt_history": 5200,
+    "flight_redemption_count_history": 1,
+    "ticketed_premium_cabin_bookings": 2,
+    "future_booking_count": 1,
+    "future_revenue_amt": 450,
     "marketing_consent": {
-      "push": false,
+      "push": true,
       "email": true,
       "sms": false
     },
     "suppression": {
       "is_suppressed": false,
       "recent_complaint": false,
-      "last_offer_date": null
+      "last_offer_date": "2025-12-20"
     },
     "historical_upgrades": {
-      "offers_received": 0,
-      "offers_accepted": 0,
-      "acceptance_rate": 0,
-      "last_upgrade_type": null,
-      "avg_upgrade_spend": 0
+      "offers_received": 8,
+      "offers_accepted": 3,
+      "acceptance_rate": 0.38,
+      "last_upgrade_type": "MCE",
+      "avg_upgrade_spend": 65
     }
   },
   {
+    "_scenario": "GUARDRAIL: CUSTOMER - Customer MCP returns suppression flag",
     "lylty_acct_id": "2222222222",
     "party_id": "P002222222",
     "name_prefix": "Mrs",
@@ -220,7 +233,7 @@
       "is_suppressed": true,
       "recent_complaint": true,
       "complaint_date": "2026-01-08",
-      "complaint_reason": "Delayed baggage",
+      "complaint_reason": "Delayed baggage on previous flight",
       "last_offer_date": "2026-01-01"
     },
     "historical_upgrades": {
@@ -232,6 +245,7 @@
     }
   },
   {
+    "_scenario": "PRICE TRADE-OFF - ML elasticity shows big P(buy) jump at discount",
     "lylty_acct_id": "3333333333",
     "party_id": "P003333333",
     "name_prefix": "Mr",

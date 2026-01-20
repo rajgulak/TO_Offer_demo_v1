@@ -109,15 +109,57 @@ URGENCY_DISCOUNT_POLICY = {
 
 **Result:** Agent can propose 15% base + 10% urgency = 25%, but Business max is 20%, so **final = 20% (capped)**.
 
-### 2. Data Flow via MCP Tools
+### 2. Data Flow Architecture
 
 ```
-Reservation System → get_reservation() → state.hours_to_departure
-ML Model API      → get_propensity()  → state.ml_scores
-Customer 360      → get_customer()    → state.customer_data
+┌─────────────────────────────────────────────────────────────────┐
+│                        DATA LOADING                              │
+│                                                                  │
+│  USE_MCP=false (default)          USE_MCP=true (optional)       │
+│  ┌─────────────────────┐          ┌─────────────────────┐       │
+│  │  Direct Function    │          │   MCP Client        │       │
+│  │  Calls (fast)       │          │   (langchain-mcp)   │       │
+│  └──────────┬──────────┘          └──────────┬──────────┘       │
+│             │                                │ stdio            │
+│             │                                ▼                  │
+│             │                     ┌─────────────────────┐       │
+│             │                     │   MCP Server        │       │
+│             │                     │   (tools/mcp_server)│       │
+│             │                     └──────────┬──────────┘       │
+│             │                                │                  │
+│             └────────────┬───────────────────┘                  │
+│                          ▼                                      │
+│               ┌─────────────────────┐                           │
+│               │  tools/data_tools   │                           │
+│               │  (JSON files now,   │                           │
+│               │   APIs in prod)     │                           │
+│               └─────────────────────┘                           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Agents read from shared state, not JSON files directly. Swap to production by changing tool implementations only.
+**Data Sources (simulated in demo, real APIs in production):**
+```
+get_reservation() → Reservation System → state.hours_to_departure
+get_ml_scores()   → ML Model API      → state.ml_scores
+get_customer()    → Customer 360      → state.customer_data
+get_flight()      → Flight Ops        → state.flight_data
+```
+
+Agents read from shared state, not files directly. Swap to production by changing `tools/data_tools.py` only.
+
+**MCP Mode** (optional - for demonstrating MCP protocol):
+```bash
+# Enable MCP client/server architecture
+export USE_MCP=true
+
+# Test MCP server standalone with Inspector
+mcp dev tools/mcp_server.py
+```
+
+| Mode | Data Flow | Use Case |
+|------|-----------|----------|
+| `USE_MCP=false` | Direct Python calls | Development (fast) |
+| `USE_MCP=true` | MCP client → server | Production pattern |
 
 ### 3. Expected Value Optimization
 
@@ -157,7 +199,9 @@ tailored-offers-demo/
 │   ├── measurement_learning.py    # 🏷️ Tracking setup
 │   └── workflow.py                # LangGraph pipeline
 ├── tools/                 # MCP tool abstraction layer
-│   └── data_tools.py      # get_customer(), get_flight(), etc.
+│   ├── data_tools.py      # get_customer(), get_flight(), etc.
+│   ├── mcp_server.py      # MCP server (FastMCP) exposing data tools
+│   └── mcp_client.py      # MCP client wrapper (langchain-mcp-adapters)
 ├── data/                  # Mock data (JSON files)
 ├── docker-compose.yml
 └── requirements.txt
@@ -171,6 +215,7 @@ tailored-offers-demo/
 |-----------|------------|
 | Workflow Orchestration | LangGraph (StateGraph) |
 | LLM | OpenAI GPT-4o-mini / Anthropic Claude 3.5 |
+| Data Protocol | MCP (Model Context Protocol) with langchain-mcp-adapters |
 | Backend | FastAPI + SSE |
 | Frontend | React + Vite + Tailwind |
 | Deployment | Docker Compose |
@@ -222,6 +267,9 @@ final = min(proposed, max_discount)  # min(15%, 20%) = 15%
 OPENAI_API_KEY=sk-...
 # OR
 ANTHROPIC_API_KEY=sk-ant-...
+
+# MCP Mode (optional - uses direct calls by default)
+USE_MCP=true  # Enable MCP client/server for data loading
 
 # Dynamic reasoning (optional)
 USE_DYNAMIC_REASONING=true  # LLM generates explanations for all agents

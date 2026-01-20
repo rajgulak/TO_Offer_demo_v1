@@ -1,9 +1,10 @@
 [
   {
+    "_scenario": "Used by: ABC123 (Easy Choice), GHI654 (Guardrail:Customer), JKL789 (Price Trade-off)",
     "operat_flight_nbr": 2847,
     "operat_airln_cd": "AA",
     "leg": 1,
-    "leg_dep_dt": "2026-01-14",
+    "leg_dep_dt": "2026-01-15",
     "schd_leg_dep_airprt_iata_cd": "DFW",
     "schd_leg_arvl_airprt_iata_cd": "LAX",
     "schd_leg_dep_lcl_tms": "14:00",
@@ -17,7 +18,7 @@
         "cabin_total_pax": 30,
         "cabin_ticketed_actual_pax": 30,
         "cabin_available": 7,
-        "expected_load_factor": 0.88,
+        "expected_load_factor": 0.81,
         "cabin_aadvantage_pax": 22,
         "cabin_total_revenue": 45000,
         "cabin_mileage_burn_rev": 8500,
@@ -26,10 +27,10 @@
       },
       "W": {
         "cabin_capacity": 24,
-        "cabin_total_pax": 21,
-        "cabin_ticketed_actual_pax": 21,
-        "cabin_available": 3,
-        "expected_load_factor": 0.92,
+        "cabin_total_pax": 18,
+        "cabin_ticketed_actual_pax": 18,
+        "cabin_available": 6,
+        "expected_load_factor": 0.75,
         "cabin_aadvantage_pax": 15,
         "cabin_total_revenue": 12500,
         "cabin_mileage_burn_rev": 2100,
@@ -41,7 +42,7 @@
         "cabin_total_pax": 36,
         "cabin_ticketed_actual_pax": 36,
         "cabin_available": 24,
-        "expected_load_factor": 0.75,
+        "expected_load_factor": 0.60,
         "cabin_aadvantage_pax": 28,
         "cabin_total_revenue": 2340,
         "cabin_mileage_burn_rev": 0
@@ -51,7 +52,7 @@
         "cabin_total_pax": 152,
         "cabin_ticketed_actual_pax": 152,
         "cabin_available": 15,
-        "expected_load_factor": 0.94,
+        "expected_load_factor": 0.91,
         "cabin_aadvantage_pax": 89,
         "cabin_total_revenue": 38200
       }
@@ -65,6 +66,7 @@
     }
   },
   {
+    "_scenario": "Used by: XYZ789 (Confidence Trade-off - good inventory, ML confidence is low)",
     "operat_flight_nbr": 1234,
     "operat_airln_cd": "AA",
     "leg": 1,
@@ -82,7 +84,7 @@
         "cabin_total_pax": 10,
         "cabin_ticketed_actual_pax": 10,
         "cabin_available": 6,
-        "expected_load_factor": 0.78,
+        "expected_load_factor": 0.63,
         "cabin_aadvantage_pax": 8,
         "cabin_total_revenue": 12800,
         "cabin_mileage_burn_rev": 2400,
@@ -94,17 +96,17 @@
         "cabin_total_pax": 12,
         "cabin_ticketed_actual_pax": 12,
         "cabin_available": 18,
-        "expected_load_factor": 0.62,
+        "expected_load_factor": 0.40,
         "cabin_aadvantage_pax": 9,
         "cabin_total_revenue": 348,
         "cabin_mileage_burn_rev": 0
       },
       "Y": {
         "cabin_capacity": 143,
-        "cabin_total_pax": 138,
-        "cabin_ticketed_actual_pax": 138,
-        "cabin_available": 5,
-        "expected_load_factor": 0.98,
+        "cabin_total_pax": 135,
+        "cabin_ticketed_actual_pax": 135,
+        "cabin_available": 8,
+        "expected_load_factor": 0.94,
         "cabin_aadvantage_pax": 72,
         "cabin_total_revenue": 28500
       }
@@ -118,6 +120,7 @@
     }
   },
   {
+    "_scenario": "Used by: LMN456 (Relationship Trade-off - long-haul, high-value customer needs care)",
     "operat_flight_nbr": 100,
     "operat_airln_cd": "AA",
     "leg": 1,
@@ -183,6 +186,7 @@
     }
   },
   {
+    "_scenario": "Used by: DEF321 (GUARDRAIL: Flight MCP returns 0 available seats)",
     "operat_flight_nbr": 555,
     "operat_airln_cd": "AA",
     "leg": 1,
@@ -196,6 +200,7 @@
     "local_bid_price": 85.00,
     "cabins": {
       "F": {
+        "_note": "SOLD OUT - This is the key scenario differentiator!",
         "cabin_capacity": 16,
         "cabin_total_pax": 16,
         "cabin_ticketed_actual_pax": 16,
@@ -208,11 +213,12 @@
         "cabin_iu_miles_burn_rev": 420
       },
       "MCE": {
+        "_note": "MCE also nearly full",
         "cabin_capacity": 30,
-        "cabin_total_pax": 28,
-        "cabin_ticketed_actual_pax": 28,
-        "cabin_available": 2,
-        "expected_load_factor": 0.96,
+        "cabin_total_pax": 29,
+        "cabin_ticketed_actual_pax": 29,
+        "cabin_available": 1,
+        "expected_load_factor": 0.97,
         "cabin_aadvantage_pax": 18,
         "cabin_total_revenue": 700,
         "cabin_mileage_burn_rev": 0
@@ -222,13 +228,13 @@
         "cabin_total_pax": 110,
         "cabin_ticketed_actual_pax": 110,
         "cabin_available": 4,
-        "expected_load_factor": 0.98,
+        "expected_load_factor": 0.96,
         "cabin_aadvantage_pax": 58,
         "cabin_total_revenue": 22800
       }
     },
     "product_catalog": {
-      "mce_available": true,
+      "mce_available": false,
       "mce_price": 25,
       "iu_available": false,
       "iu_business_price": 149,

@@ -2,8 +2,26 @@ import { useCallback, useRef } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+interface HITLResult {
+  status: string;
+  approval_request_id?: string;
+  proposed_offer?: {
+    offer_type: string;
+    price: number;
+    discount_percent?: number;
+    expected_value?: number;
+  };
+  escalation_reasons?: string[];
+  final_decision?: any;
+  suppression_reason?: string;
+}
+
+type ExecutionMode = 'choreography' | 'planner-worker';
+
 interface SSECallbacks {
-  onPipelineStart?: (data: { pnr: string; total_steps: number }) => void;
+  onPipelineStart?: (data: { pnr: string; total_steps: number; execution_mode?: string }) => void;
+  onPlannerStart?: (data: { message: string }) => void;
+  onPlannerDecision?: (data: { plan: string[]; reasoning: string }) => void;
   onAgentStart?: (data: { agent_id: string; agent_name: string; step: number }) => void;
   onAgentComplete?: (data: {
     agent_id: string;
@@ -27,19 +45,30 @@ interface SSECallbacks {
 export function useSSE() {
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const startEvaluation = useCallback((pnr: string, callbacks: SSECallbacks) => {
+  const startEvaluation = useCallback((pnr: string, callbacks: SSECallbacks, executionMode: ExecutionMode = 'choreography') => {
     // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const url = `${API_BASE}/api/pnrs/${pnr}/evaluate`;
+    const url = `${API_BASE}/api/pnrs/${pnr}/evaluate?execution_mode=${executionMode}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
     eventSource.addEventListener('pipeline_start', (event) => {
       const data = JSON.parse(event.data);
       callbacks.onPipelineStart?.(data);
+    });
+
+    // Planner-worker specific events
+    eventSource.addEventListener('planner_start', (event) => {
+      const data = JSON.parse(event.data);
+      callbacks.onPlannerStart?.(data);
+    });
+
+    eventSource.addEventListener('planner_decision', (event) => {
+      const data = JSON.parse(event.data);
+      callbacks.onPlannerDecision?.(data);
     });
 
     eventSource.addEventListener('agent_start', (event) => {
@@ -86,5 +115,20 @@ export function useSSE() {
     }
   }, []);
 
-  return { startEvaluation, stopEvaluation };
+  /**
+   * Start evaluation with Human-in-the-Loop support.
+   * This is a direct API call (not SSE) that may return a pending approval.
+   */
+  const startEvaluationHITL = useCallback(async (pnr: string, forceApproval: boolean = false): Promise<HITLResult> => {
+    const url = `${API_BASE}/api/pnrs/${pnr}/evaluate-hitl?force_approval=${forceApproval}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HITL evaluation failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }, []);
+
+  return { startEvaluation, stopEvaluation, startEvaluationHITL };
 }

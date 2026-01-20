@@ -40,6 +40,76 @@ export function FinalDecisionPanel({ decision, isComplete }: Props) {
     );
   }
 
+  // HITL: Pending Approval state
+  if (decision.pending_approval) {
+    return (
+      <div className="bg-purple-50 rounded-xl border-2 border-purple-300 overflow-hidden animate-slide-up">
+        {/* Header */}
+        <div className="bg-purple-100 px-6 py-4 border-b border-purple-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-purple-200 flex items-center justify-center animate-pulse">
+                <span className="text-2xl">👤</span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-purple-800">Pending Human Approval</h3>
+                <p className="text-purple-600">Offer waiting in approval queue</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-bold text-purple-700">
+                ${decision.price?.toFixed(0)}
+              </div>
+              <div className="text-sm text-purple-600">{decision.offer_type}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Details */}
+        <div className="p-6">
+          {/* Escalation Reasons */}
+          {decision.escalation_reasons && decision.escalation_reasons.length > 0 && (
+            <div className="mb-4">
+              <div className="text-sm font-medium text-purple-700 mb-2">Escalation Triggered By:</div>
+              <div className="flex flex-wrap gap-2">
+                {decision.escalation_reasons.map((reason, i) => (
+                  <span
+                    key={i}
+                    className="px-3 py-1 bg-purple-200 text-purple-800 rounded-full text-sm"
+                  >
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Approval ID */}
+          {decision.approval_request_id && (
+            <div className="bg-purple-100 rounded-lg p-3 mb-4">
+              <div className="text-xs text-purple-600 uppercase tracking-wide mb-1">Approval Request ID</div>
+              <code className="text-xs text-purple-800 break-all">{decision.approval_request_id}</code>
+            </div>
+          )}
+
+          <div className="bg-white rounded-lg p-4 border border-purple-200">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">💡</span>
+              <div>
+                <p className="text-sm text-gray-700">
+                  This offer requires human approval before delivery. Check the <strong>Human Approval Queue</strong> above to approve or deny this offer.
+                </p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Once approved, the offer will be delivered automatically.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-emerald-50 rounded-xl border border-emerald-200 overflow-hidden animate-slide-up">
       {/* Header */}

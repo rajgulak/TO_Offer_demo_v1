@@ -102,6 +102,10 @@ export interface FinalDecision {
   experiment_group?: string;
   tracking_id?: string;
   suppression_reason?: string;
+  // HITL fields
+  pending_approval?: boolean;
+  approval_request_id?: string;
+  escalation_reasons?: string[];
 }
 
 // SSE Event Types

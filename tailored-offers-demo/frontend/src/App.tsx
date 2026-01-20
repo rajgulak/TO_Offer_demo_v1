@@ -7,6 +7,8 @@ import { PipelineVisualization } from './components/PipelineVisualization';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { FinalDecisionPanel } from './components/FinalDecisionPanel';
 import { InteractiveTutorial } from './components/InteractiveTutorial';
+import { DemoControls, type ExecutionMode } from './components/DemoControls';
+import { HITLPanel } from './components/HITLPanel';
 import { useSSE } from './hooks/useSSE';
 import type { PNRSummary, EnrichedPNR, AgentResult, FinalDecision } from './types';
 
@@ -34,8 +36,15 @@ function App() {
   const [selectedAgentTab, setSelectedAgentTab] = useState<string | null>(null);
   const [finalDecision, setFinalDecision] = useState<FinalDecision | null>(null);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('choreography');
+  const [hitlEnabled, setHitlEnabled] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_hitlPendingId, setHitlPendingId] = useState<string | null>(null);
+  // Track execution mode actually being used (for live visualization)
+  const [activeExecutionMode, setActiveExecutionMode] = useState<ExecutionMode | null>(null);
+  const [plannerState, setPlannerState] = useState<{ isActive: boolean; plan?: string[]; reasoning?: string }>({ isActive: false });
 
-  const { startEvaluation } = useSSE();
+  const { startEvaluation, startEvaluationHITL } = useSSE();
 
   // Fetch PNR list on mount
   useEffect(() => {
@@ -66,9 +75,11 @@ function App() {
     setCurrentAgentId(null);
     setSelectedAgentTab(null);
     setFinalDecision(null);
+    setActiveExecutionMode(null);
+    setPlannerState({ isActive: false });
   }, []);
 
-  const handleRunEvaluation = useCallback(() => {
+  const handleRunEvaluation = useCallback(async () => {
     if (!selectedPNR) return;
 
     // Reset state
@@ -77,10 +88,56 @@ function App() {
     setCurrentAgentId(null);
     setSelectedAgentTab(null);
     setFinalDecision(null);
+    setHitlPendingId(null);
+    setActiveExecutionMode(executionMode);
+    setPlannerState({ isActive: false });
 
+    // If HITL is enabled, use the HITL endpoint
+    if (hitlEnabled) {
+      try {
+        const result = await startEvaluationHITL(selectedPNR, true);
+
+        if (result.status === 'pending_approval') {
+          // Offer is waiting for human approval
+          setHitlPendingId(result.approval_request_id || null);
+          setPipelineStatus('complete');
+          setFinalDecision({
+            should_send_offer: true,
+            offer_type: result.proposed_offer?.offer_type || 'Unknown',
+            price: result.proposed_offer?.price || 0,
+            pending_approval: true,
+            approval_request_id: result.approval_request_id,
+            escalation_reasons: result.escalation_reasons,
+          });
+        } else if (result.final_decision) {
+          // No approval needed, offer sent directly
+          setPipelineStatus('complete');
+          setFinalDecision(result.final_decision);
+        } else {
+          // No offer
+          setPipelineStatus('complete');
+          setFinalDecision({
+            should_send_offer: false,
+            suppression_reason: result.suppression_reason || 'No offer criteria met',
+          });
+        }
+      } catch (error) {
+        console.error('HITL evaluation error:', error);
+        setPipelineStatus('idle');
+      }
+      return;
+    }
+
+    // Standard SSE evaluation
     startEvaluation(selectedPNR, {
       onPipelineStart: () => {
         setPipelineStatus('running');
+      },
+      onPlannerStart: () => {
+        setPlannerState({ isActive: true });
+      },
+      onPlannerDecision: (data) => {
+        setPlannerState({ isActive: false, plan: data.plan, reasoning: data.reasoning });
       },
       onAgentStart: (data) => {
         setCurrentAgentId(data.agent_id);
@@ -122,14 +179,16 @@ function App() {
         setPipelineStatus('complete');
         setCurrentAgentId(null);
         setFinalDecision(data.final_decision);
+        // Keep activeExecutionMode to show completed state in visualization
       },
       onError: (error) => {
         console.error('Pipeline error:', error);
         setPipelineStatus('idle');
         setCurrentAgentId(null);
+        setActiveExecutionMode(null);
       }
-    });
-  }, [selectedPNR, startEvaluation]);
+    }, executionMode);
+  }, [selectedPNR, startEvaluation, startEvaluationHITL, hitlEnabled, executionMode]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -138,6 +197,23 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Architecture Overview - Collapsible */}
         <ArchitectureOverview onOpenTutorial={() => setIsTutorialOpen(true)} />
+
+        {/* Demo Controls - Execution Mode & HITL Toggle */}
+        <DemoControls
+          executionMode={executionMode}
+          onExecutionModeChange={setExecutionMode}
+          hitlEnabled={hitlEnabled}
+          onHitlEnabledChange={setHitlEnabled}
+        />
+
+        {/* HITL Approval Queue */}
+        <HITLPanel
+          isEnabled={hitlEnabled}
+          onApprovalComplete={() => {
+            // Refresh the UI when an approval is processed
+            setHitlPendingId(null);
+          }}
+        />
 
         {/* PNR Selector */}
         <PNRSelector
@@ -158,6 +234,9 @@ function App() {
           currentAgentId={currentAgentId}
           selectedAgentTab={selectedAgentTab}
           onSelectAgent={setSelectedAgentTab}
+          executionMode={activeExecutionMode}
+          hitlEnabled={hitlEnabled}
+          plannerState={plannerState}
         />
 
         {/* Agent Detail Panel */}

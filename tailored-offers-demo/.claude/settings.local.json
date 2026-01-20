@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(brew upgrade:*)",
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(python -c:*)",
+      "Bash(npm run build:*)",
+      "Bash(curl:*)",
+      "Bash(echo:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(__NEW_LINE_5ce19bb4dad2ac2c__ for pnr in ABC123 XYZ789 LMN456 DEF321 GHI654 JKL789)",
+      "Bash(do)",
+      "Bash(done)",
+      "Bash(__NEW_LINE_84a7aaf4b8fc1f0d__ echo \"\")",
+      "Bash(1 grep \"pipeline_complete\" /tmp/abc123.txt)",
+      "Bash(ls:*)",
+      "Bash(pip install:*)",
+      "Bash(1 grep \"offer_orchestration\" /tmp/lmn456_llm.txt)",
+      "Bash(source .env)",
+      "Bash(export OPENAI_API_KEY=$OPENAI_API_KEY)",
+      "Bash(tee:*)",
+      "Bash(__NEW_LINE_7d1c564a0774358f__ echo \"=== Running ABC123 \\(Easy Choice\\) ===\")",
+      "Bash(export OPENAI_API_KEY=$OPENAI_API_KEY echo \"=== Testing LMN456 \\(Relationship Trade-off - Goodwill Policy\\) ===\" curl -sN \"http://localhost:8000/api/pnrs/LMN456/evaluate?use_mcp=false&use_llm=true\" 2)",
+      "Bash(1 grep '\"\"agent_id\"\": \"\"offer_orchestration\"\".*\"\"status\"\": \"\"complete\"\"' /tmp/lmn456_policy_test.txt)",
+      "Bash(export OPENAI_API_KEY=$OPENAI_API_KEY echo \"=== Testing LMN456 \\(Relationship - Goodwill Policy POL-GW-001\\) ===\" curl -sN \"http://localhost:8000/api/pnrs/LMN456/evaluate?use_mcp=false&use_llm=true\" 2)",
+      "Bash(1 grep '\"\"agent_id\"\": \"\"offer_orchestration\"\".*\"\"status\"\": \"\"complete\"\"' /tmp/lmn456_policy_test2.txt)",
+      "Bash(__NEW_LINE_ae98f426117581d0__ echo \"=== Testing LMN456 \\(Relationship - Policy POL-GW-001\\) ===\")",
+      "Bash(# Kill everything and verify pkill -9 -f \"\"python\"\" pkill -9 -f \"\"uvicorn\"\" sleep 2 # Verify no Python processes ps aux)",
+      "Bash(md5:*)"
+    ]
+  }
+}

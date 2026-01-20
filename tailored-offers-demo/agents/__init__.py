@@ -12,7 +12,8 @@ Tailored Offers Agents
 
 from .customer_intelligence import CustomerIntelligenceAgent
 from .flight_optimization import FlightOptimizationAgent
-from .offer_orchestration import OfferOrchestrationAgent
+# ReWOO Pattern: Planner-Worker-Solver for Offer Orchestration
+from .offer_orchestration_rewoo import OfferOrchestrationReWOO as OfferOrchestrationAgent
 from .personalization import PersonalizationAgent
 from .channel_timing import ChannelTimingAgent
 from .measurement_learning import MeasurementLearningAgent

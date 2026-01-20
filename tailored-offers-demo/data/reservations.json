@@ -1,5 +1,6 @@
 [
   {
+    "_scenario": "EASY CHOICE - Business EV clearly wins (baseline)",
     "pnr_loctr_id": "ABC123",
     "lylty_acct_id": "1234567890",
     "operat_flight_nbr": 2847,
@@ -28,6 +29,7 @@
     "checked_in": false
   },
   {
+    "_scenario": "TRADE-OFF: CONFIDENCE - High EV but unreliable ML prediction",
     "pnr_loctr_id": "XYZ789",
     "lylty_acct_id": "9876543210",
     "operat_flight_nbr": 1234,
@@ -56,6 +58,7 @@
     "checked_in": false
   },
   {
+    "_scenario": "TRADE-OFF: RELATIONSHIP - High-value customer with recent frustration",
     "pnr_loctr_id": "LMN456",
     "lylty_acct_id": "5555555555",
     "operat_flight_nbr": 100,
@@ -84,6 +87,7 @@
     "checked_in": false
   },
   {
+    "_scenario": "GUARDRAIL: INVENTORY - Agent blocked by Flight MCP (0 seats)",
     "pnr_loctr_id": "DEF321",
     "lylty_acct_id": "1111111111",
     "operat_flight_nbr": 555,
@@ -98,11 +102,11 @@
     "seg_seq_id": 1,
     "od_seq_nbr": 1,
     "max_bkd_cabin_cd": "Y",
-    "fare_class": "G",
+    "fare_class": "V",
     "flight_revenue_amt_curr_trip": 198,
     "yield_curr_trip": 0.09,
-    "group_size": 2,
-    "basic_economy_ind": 1,
+    "group_size": 1,
+    "basic_economy_ind": 0,
     "cart_ind": 0,
     "aadv_business_ind": 0,
     "special_service_request_ind": 0,
@@ -112,6 +116,7 @@
     "checked_in": false
   },
   {
+    "_scenario": "GUARDRAIL: CUSTOMER - Agent blocked by Customer MCP (suppressed)",
     "pnr_loctr_id": "GHI654",
     "lylty_acct_id": "2222222222",
     "operat_flight_nbr": 2847,
@@ -140,6 +145,7 @@
     "checked_in": false
   },
   {
+    "_scenario": "TRADE-OFF: PRICE - Agent decides discount level based on ML elasticity",
     "pnr_loctr_id": "JKL789",
     "lylty_acct_id": "3333333333",
     "operat_flight_nbr": 2847,

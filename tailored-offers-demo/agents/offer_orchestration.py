@@ -25,34 +25,44 @@ from .llm_service import get_llm, is_llm_available
 # System prompt for LLM reasoning
 ORCHESTRATION_SYSTEM_PROMPT = """You are an Offer Orchestration Agent for American Airlines' Tailored Offers system.
 
-Your PRIMARY GOAL is to MAXIMIZE REVENUE, not maximize acceptance rate.
+## WHY THIS REQUIRES AN AGENT (not just a formula)
 
-## CRITICAL: Expected Value (EV) is your PRIMARY decision factor
+A simple rule like "pick highest EV" doesn't work because real decisions involve TRADE-OFFS:
 
-EV = P(buy) × Price × Margin
+### TRADE-OFF 1: Short-term Revenue vs Long-term Relationship
+- High-pressure Business offer: $180 EV today
+- Gentle MCE offer: $45 EV today BUT customer feels respected, books 10 more flights
+- QUESTION: Is this customer worth nurturing, or should we maximize this transaction?
 
-The offer with the HIGHEST EV should almost always win, even if:
-- It has a LOWER acceptance probability
-- It has a HIGHER price
+### TRADE-OFF 2: Confidence vs Opportunity
+- Business offer: $150 EV but ML confidence is only 45% (unreliable prediction)
+- MCE offer: $60 EV but ML confidence is 92% (very reliable)
+- QUESTION: Do we trust the uncertain high-value prediction, or play it safe?
 
-Example:
-- Business Class: 40% chance × $171 = $68 EV ← PICK THIS ONE
-- Main Cabin Extra: 80% chance × $39 = $31 EV
+### TRADE-OFF 3: Price Sensitivity vs Margin
+- Customer is PRICE SENSITIVE (historical data shows they only buy discounts)
+- Full price Business: 18% P(buy) × $199 = $36 EV
+- Discounted Business: 52% P(buy) × $159 = $83 EV
+- QUESTION: How much discount should we offer? Too little = no sale, too much = margin erosion
 
-Even though MCE has DOUBLE the acceptance rate, Business has MORE THAN DOUBLE the EV.
-We make MORE MONEY sending Business offers, even if fewer people say yes.
+### TRADE-OFF 4: Inventory Priority vs Customer Fit
+- Business cabin desperately needs to fill (70% load factor)
+- BUT this customer historically only buys MCE
+- QUESTION: Do we push Business to help fill the cabin, or respect customer preferences?
 
-## Secondary factors (only matter when EVs are close):
-- Customer price sensitivity (may warrant small discount)
-- Inventory priority (may break ties)
-- Confidence scores (low confidence = more uncertainty)
+## YOUR DECISION FRAMEWORK
 
-## Your Task
-1. Calculate EV for each offer (already provided)
-2. Select the offer with the HIGHEST EV
-3. Only deviate if EVs are within 20% AND there's a compelling secondary reason
+1. **Start with EV** as a baseline (EV = P(buy) × Price × Margin)
+2. **Apply judgment** based on:
+   - Customer relationship value (loyalty tier, tenure, future bookings)
+   - ML confidence level (low confidence = higher risk)
+   - Price sensitivity (discount-seeking behavior)
+   - Inventory urgency (does cabin need treatment?)
+3. **Make a defensible choice** - explain WHY you chose what you chose
 
-Output your reasoning step-by-step, then provide a final decision in this exact JSON format:
+## OUTPUT FORMAT
+
+Provide your reasoning step-by-step, then a final decision:
 
 ```json
 {
@@ -62,11 +72,12 @@ Output your reasoning step-by-step, then provide a final decision in this exact 
   "fallback_offer": "MCE" or "IU_PREMIUM_ECONOMY" or null,
   "fallback_price": <number or null>,
   "confidence": "high" or "medium" or "low",
-  "key_factors": ["factor1", "factor2", "factor3"]
+  "key_factors": ["factor1", "factor2", "factor3"],
+  "trade_off_reasoning": "Brief explanation of the key trade-off you resolved"
 }
 ```
 
-Remember: You are a REVENUE MANAGER. Higher EV = More revenue = Better decision."""
+Remember: You are making a JUDGMENT CALL that balances multiple competing factors. A formula can't do this - that's why you're an agent."""
 
 
 class OfferOrchestrationAgent:
@@ -309,16 +320,34 @@ class OfferOrchestrationAgent:
                 "inventory_priority": inventory.get(cabin_code, {}).get("priority", "low")
             })
 
+        # Check for relationship risk factors
+        service_recovery = customer.get("recent_service_recovery", {})
+        relationship_context = None
+        if service_recovery.get("had_issue"):
+            relationship_context = {
+                "had_recent_issue": True,
+                "issue_type": service_recovery.get("issue_type", "unknown"),
+                "issue_date": service_recovery.get("issue_date", ""),
+                "resolution": service_recovery.get("resolution", ""),
+                "customer_sentiment": service_recovery.get("customer_sentiment", "unknown")
+            }
+
+        # Map loyalty tier codes to display names
+        tier_names = {"E": "Executive Platinum", "T": "Platinum Pro", "P": "Platinum", "G": "Gold"}
+        tier_display = tier_names.get(customer.get("loyalty_tier", ""), customer.get("loyalty_tier", "General"))
+
         return {
             "customer": {
                 "name": f"{customer.get('first_name', '')} {customer.get('last_name', '')}",
                 "loyalty_tier": customer.get("loyalty_tier", "General"),
+                "loyalty_tier_display": tier_display,
                 "annual_revenue": customer.get("flight_revenue_amt_history", 0),
                 "travel_pattern": "business" if customer.get("business_trip_likelihood", 0) > 0.5 else "leisure",
                 "historical_acceptance_rate": customer.get("historical_upgrades", {}).get("acceptance_rate", 0),
-                "avg_upgrade_spend": customer.get("historical_upgrades", {}).get("avg_upgrade_spend", 0)
+                "avg_upgrade_spend": customer.get("historical_upgrades", {}).get("avg_upgrade_spend", 0),
+                "relationship_context": relationship_context
             },
-            "customer_summary": f"{customer.get('first_name', 'Customer')} ({customer.get('loyalty_tier', 'General')}, ${customer.get('flight_revenue_amt_history', 0):,}/yr)",
+            "customer_summary": f"{customer.get('first_name', 'Customer')} ({tier_display}, ${customer.get('flight_revenue_amt_history', 0):,}/yr)",
             "price_sensitivity": ml_scores.get("price_sensitivity", "medium") if ml_scores else "medium",
             "offer_options": offer_options,
             "flight": {
@@ -332,43 +361,69 @@ class OfferOrchestrationAgent:
         reasoning_parts.append("\n[LLM REASONING MODE]")
 
         # Build prompt
-        user_prompt = f"""Analyze this offer opportunity and select the optimal offer:
+        user_prompt = f"""Analyze this offer opportunity and make a TRADE-OFF decision:
 
 ## Customer Profile
 - Name: {context['customer']['name']}
-- Loyalty Tier: {context['customer']['loyalty_tier']}
+- Loyalty Tier: {context['customer']['loyalty_tier_display']} (tier code: {context['customer']['loyalty_tier']})
 - Annual Revenue: ${context['customer']['annual_revenue']:,}
 - Travel Pattern: {context['customer']['travel_pattern']}
 - Historical Acceptance Rate: {context['customer']['historical_acceptance_rate']:.0%}
 - Price Sensitivity: {context['price_sensitivity']}
+"""
+        # Add relationship context if there's a recent issue
+        if context['customer'].get('relationship_context'):
+            rc = context['customer']['relationship_context']
+            user_prompt += f"""
+## ⚠️ RELATIONSHIP ALERT
+This customer had a recent service issue:
+- Issue Type: {rc['issue_type']}
+- Issue Date: {rc['issue_date']}
+- Resolution: {rc['resolution']}
+- Current Sentiment: {rc['customer_sentiment']}
 
+**TRADE-OFF QUESTION**: Should you push the high-revenue offer, or protect the ${context['customer']['annual_revenue']:,}/yr relationship with a gentler approach?
+"""
+
+        user_prompt += f"""
 ## Flight Context
 - Route: {context['flight']['route']}
 - Hours to Departure: {context['flight']['hours_to_departure']}
 
-## Available Offers
+## Available Offers (from MCP data)
 """
         for opt in context['offer_options']:
+            confidence_warning = ""
+            if opt['confidence'] < 0.6:
+                confidence_warning = f" ⚠️ LOW CONFIDENCE - ML model is uncertain!"
+            elif opt['confidence'] > 0.85:
+                confidence_warning = f" ✓ HIGH CONFIDENCE - reliable prediction"
+
             user_prompt += f"""
 ### {opt['display_name']} ({opt['offer_type']})
 - P(buy): {opt['p_buy']:.0%} chance customer will purchase
+- ML Confidence: {opt['confidence']:.0%}{confidence_warning}
 - Price: ${opt['base_price']}
-- Our margin: {opt['margin_pct']:.0%} (= ${opt['margin_dollars']:.0f} profit per sale)
+- Margin: {opt['margin_pct']:.0%} (= ${opt['margin_dollars']:.0f} profit per sale)
 - **EXPECTED VALUE: ${opt['expected_value']:.2f}**
-  (Calculation: {opt['p_buy']:.0%} × ${opt['margin_dollars']:.0f} = ${opt['expected_value']:.2f})
 - Inventory Priority: {opt['inventory_priority']}
 """
 
         user_prompt += """
-## Your Task
-1. COMPARE the Expected Values (EV) - this is the PRIMARY factor
-2. Select the offer with the HIGHEST EV (even if it has lower acceptance probability!)
-3. Only consider secondary factors if EVs are within 20% of each other
-4. Apply a small discount (5-15%) only if customer has high price sensitivity
-5. Provide your decision in the JSON format specified
+## Your Task: Make a TRADE-OFF Decision
 
-REMEMBER: A $121 EV beats a $27 EV, even if the $27 option has higher acceptance rate.
-We maximize REVENUE, not acceptance rate.
+This is NOT just picking highest EV. Consider these trade-offs:
+
+1. **CONFIDENCE TRADE-OFF**: If one offer has high EV but LOW ML confidence (<60%),
+   should you trust it or pick the safer option with higher confidence?
+
+2. **RELATIONSHIP TRADE-OFF**: If customer has a recent service issue,
+   should you push high-revenue offer or protect the relationship?
+
+3. **PRICE SENSITIVITY TRADE-OFF**: If customer is price-sensitive,
+   how much discount balances conversion vs margin?
+
+Explain your trade-off reasoning, then provide your decision in JSON format.
 """
 
         try:
@@ -712,6 +767,9 @@ We maximize REVENUE, not acceptance rate.
                 reasoning_parts.append(f"      📉 Applying {best_discount:.0%} discount (max allowed: {max_discount:.0%})")
             reasoning_parts.append("")
 
+            # Get ML confidence for this offer
+            ml_confidence = score_data.get("confidence", 0.5)
+
             offer_candidates.append({
                 "cabin": cabin_code,
                 "config_key": config_key,
@@ -721,17 +779,91 @@ We maximize REVENUE, not acceptance rate.
                 "final_price": best_price,
                 "discount": best_discount,
                 "expected_value": best_ev,
+                "ml_confidence": ml_confidence,
                 "urgency_tier": urgency_tier["name"],
                 "urgency_boost_applied": urgency_boost
             })
 
-        # Select highest EV
+        # ================================================================
+        # TRADE-OFF DECISIONS: Consider ML Confidence AND Relationship Health
+        # Don't blindly pick highest EV - consider multiple factors
+        # ================================================================
         offer_candidates.sort(key=lambda x: x["expected_value"], reverse=True)
-        primary = offer_candidates[0]
+
+        # Check for trade-offs
+        confidence_trade_off = False
+        relationship_trade_off = False
+        trade_off_reasoning = ""
+
+        # Check for recent service recovery (relationship risk)
+        service_recovery = customer.get("recent_service_recovery", {})
+        has_recent_issue = service_recovery.get("had_issue", False)
+        customer_ltv = customer.get("flight_revenue_amt_history", 0)
+
+        best_ev_offer = offer_candidates[0]
+        primary = best_ev_offer
+
+        # TRADE-OFF 1: Relationship - High-value customer with recent issue
+        # Apply "goodwill discount" to show we care about the relationship
+        if (has_recent_issue and customer_ltv > 50000):
+            relationship_trade_off = True
+            goodwill_discount = 0.10  # 10% goodwill discount
+            original_price = best_ev_offer["final_price"]
+            discounted_price = original_price * (1 - goodwill_discount)
+
+            trade_off_reasoning = (
+                f"   ⚠️ RELATIONSHIP TRADE-OFF DETECTED:\n"
+                f"   │ Customer had recent service issue: {service_recovery.get('issue_type', 'unknown')}\n"
+                f"   │ Customer lifetime value: ${customer_ltv:,}\n"
+                f"   │ Sentiment: {service_recovery.get('customer_sentiment', 'unknown')}\n"
+                f"   │\n"
+                f"   │ Original price: ${original_price:.0f}\n"
+                f"   │ Goodwill discount: {goodwill_discount:.0%}\n"
+                f"   │ Final price: ${discounted_price:.0f}\n"
+                f"   │\n"
+                f"   │ DECISION: Apply 'goodwill discount' to show we value the relationship\n"
+                f"   │ REASONING: Customer recently had an issue. Instead of pushing full price,\n"
+                f"   │ we apply a small discount to show we care about their experience.\n"
+                f"   │ This protects the ${customer_ltv:,}/yr relationship.\n"
+                f"   └─────────────────────────────────────────────────"
+            )
+            # Update primary offer with goodwill discount
+            primary["final_price"] = discounted_price
+            primary["discount"] = primary.get("discount", 0) + goodwill_discount
+            primary["expected_value"] = primary["p_buy"] * discounted_price * 0.90  # Recalculate EV
+
+        # TRADE-OFF 2: Confidence - High EV with LOW confidence vs Lower EV with HIGH confidence
+        elif len(offer_candidates) >= 2:
+            second_offer = offer_candidates[1]
+
+            if (best_ev_offer["ml_confidence"] < 0.60 and
+                second_offer["ml_confidence"] > 0.85 and
+                second_offer["expected_value"] > 0):
+
+                confidence_trade_off = True
+                trade_off_reasoning = (
+                    f"   ⚠️ CONFIDENCE TRADE-OFF DETECTED:\n"
+                    f"   │ {best_ev_offer['display_name']}: EV=${best_ev_offer['expected_value']:.2f} but only {best_ev_offer['ml_confidence']:.0%} ML confidence\n"
+                    f"   │ {second_offer['display_name']}: EV=${second_offer['expected_value']:.2f} with {second_offer['ml_confidence']:.0%} ML confidence\n"
+                    f"   │\n"
+                    f"   │ DECISION: Choose safer {second_offer['display_name']} offer\n"
+                    f"   │ REASONING: Low confidence ({best_ev_offer['ml_confidence']:.0%}) means the ML model\n"
+                    f"   │ is uncertain about this customer. Better to take the reliable\n"
+                    f"   │ smaller revenue than risk the uncertain larger revenue.\n"
+                    f"   └─────────────────────────────────────────────────"
+                )
+                # Swap to the safer option
+                primary = second_offer
 
         # ========== DECISION SECTION ==========
         reasoning_parts.append("─" * 50)
         reasoning_parts.append("")
+
+        # Show trade-off reasoning if applicable
+        if confidence_trade_off or relationship_trade_off:
+            reasoning_parts.append(trade_off_reasoning)
+            reasoning_parts.append("")
+
         reasoning_parts.append(f"✅ DECISION: OFFER {primary['display_name'].upper()} at ${primary['final_price']:.0f}")
         reasoning_parts.append(f"   Urgency: {urgency_tier['name']} (T-{hours_to_departure}hrs)")
         reasoning_parts.append("")

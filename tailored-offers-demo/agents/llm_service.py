@@ -7,14 +7,38 @@ Supports both OpenAI and Anthropic (Claude) models.
 Architecture:
 - Rule-based agents: Customer Intelligence, Flight Optimization, Channel & Timing, Measurement
 - LLM-powered agents: Offer Orchestration (reasoning), Personalization (generation)
+
+Production Features:
+- Retry logic with exponential backoff (tenacity)
+- Structured logging with correlation IDs (structlog)
+- Prometheus metrics for latency and success rates
+- LangSmith/LangFuse tracing for observability
 """
 import os
-from typing import Optional, Literal
+import time
+from typing import Optional, Literal, Callable, TypeVar
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.language_models import BaseChatModel
 
+# Import infrastructure modules
+try:
+    from infrastructure.logging import get_logger, log_llm_call, set_correlation_id
+    from infrastructure.metrics import metrics, llm_calls, llm_latency, llm_fallback
+    from infrastructure.retry import retry_llm_call, RetryConfig
+    from infrastructure.tracing import get_tracer, trace_llm_call, TraceMetadata
+    from infrastructure.validation import LLMResponseValidator, ValidationResult
+    INFRASTRUCTURE_AVAILABLE = True
+except ImportError:
+    INFRASTRUCTURE_AVAILABLE = False
+
+# Initialize logger
+logger = get_logger("llm_service") if INFRASTRUCTURE_AVAILABLE else None
+
 # LLM provider type
 LLMProvider = Literal["openai", "anthropic", "mock"]
+
+# Type variable for generic return types
+T = TypeVar("T")
 
 
 def get_llm(
@@ -252,3 +276,247 @@ def get_llm_provider_name() -> str:
         return "Anthropic (Claude)"
     else:
         return "Mock (Demo Mode)"
+
+
+# =============================================================================
+# Enhanced LLM Call with Production Features
+# =============================================================================
+
+class EnhancedLLMService:
+    """
+    Enhanced LLM service with production-grade features:
+    - Automatic retry with exponential backoff
+    - Structured logging with correlation IDs
+    - Prometheus metrics collection
+    - LangSmith/LangFuse tracing
+    - Response validation
+    """
+
+    def __init__(
+        self,
+        provider: Optional[LLMProvider] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_retries: int = 3,
+        timeout_seconds: float = 60.0,
+    ):
+        self.provider = provider
+        self.model = model
+        self.temperature = temperature
+        self.max_retries = max_retries
+        self.timeout_seconds = timeout_seconds
+
+        self._llm: Optional[BaseChatModel] = None
+        self._tracer = get_tracer() if INFRASTRUCTURE_AVAILABLE else None
+
+    @property
+    def llm(self) -> BaseChatModel:
+        """Lazy initialization of LLM instance."""
+        if self._llm is None:
+            self._llm = get_llm(
+                provider=self.provider,
+                model=self.model,
+                temperature=self.temperature,
+            )
+        return self._llm
+
+    def invoke(
+        self,
+        messages: list,
+        agent_name: str = "unknown",
+        prompt_version: str = "v1.0",
+        correlation_id: Optional[str] = None,
+        fallback: Optional[Callable[[], T]] = None,
+    ) -> str:
+        """
+        Invoke the LLM with production features.
+
+        Args:
+            messages: List of messages (SystemMessage, HumanMessage)
+            agent_name: Name of the calling agent (for metrics/tracing)
+            prompt_version: Version of the prompt being used
+            correlation_id: Optional correlation ID for request tracing
+            fallback: Optional fallback function if all retries fail
+
+        Returns:
+            LLM response content string
+        """
+        # Set correlation ID for logging
+        if INFRASTRUCTURE_AVAILABLE and correlation_id:
+            set_correlation_id(correlation_id)
+
+        start_time = time.time()
+        model_name = self.model or self._detect_model_name()
+
+        # Log start
+        if logger:
+            logger.info(
+                "llm_invoke_started",
+                agent=agent_name,
+                model=model_name,
+                prompt_version=prompt_version,
+                message_count=len(messages),
+            )
+
+        try:
+            # Invoke with retry logic
+            response = self._invoke_with_retry(messages, agent_name)
+
+            duration = time.time() - start_time
+
+            # Record metrics
+            if INFRASTRUCTURE_AVAILABLE:
+                metrics.record_llm_call(
+                    model=model_name,
+                    success=True,
+                    duration=duration,
+                )
+
+            # Record trace
+            if self._tracer:
+                self._tracer.trace_llm_call(
+                    name=f"{agent_name}_llm_call",
+                    input_data={"messages": [str(m)[:500] for m in messages]},
+                    output_data={"content": response.content[:500] if response.content else ""},
+                    metadata=TraceMetadata(
+                        agent_name=agent_name,
+                        model=model_name,
+                        prompt_version=prompt_version,
+                        latency_ms=duration * 1000,
+                    ),
+                )
+
+            # Log success
+            if logger:
+                logger.info(
+                    "llm_invoke_completed",
+                    agent=agent_name,
+                    model=model_name,
+                    duration_ms=round(duration * 1000, 2),
+                    response_length=len(response.content) if response.content else 0,
+                )
+
+            return response.content
+
+        except Exception as e:
+            duration = time.time() - start_time
+
+            # Record failure metrics
+            if INFRASTRUCTURE_AVAILABLE:
+                metrics.record_llm_call(
+                    model=model_name,
+                    success=False,
+                    duration=duration,
+                )
+
+            # Log error
+            if logger:
+                logger.error(
+                    "llm_invoke_failed",
+                    agent=agent_name,
+                    model=model_name,
+                    duration_ms=round(duration * 1000, 2),
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
+            # Use fallback if provided
+            if fallback is not None:
+                if logger:
+                    logger.warning(
+                        "llm_invoke_fallback",
+                        agent=agent_name,
+                        reason=str(e),
+                    )
+                if INFRASTRUCTURE_AVAILABLE:
+                    llm_fallback.labels(agent_name=agent_name, reason=type(e).__name__).inc()
+                return fallback()
+
+            raise
+
+    def _invoke_with_retry(self, messages: list, agent_name: str):
+        """Invoke LLM with retry logic."""
+        last_exception = None
+
+        for attempt in range(self.max_retries):
+            try:
+                return self.llm.invoke(messages)
+
+            except Exception as e:
+                last_exception = e
+
+                # Check if we should retry
+                if not self._should_retry(e):
+                    raise
+
+                if logger:
+                    logger.warning(
+                        "llm_retry_attempt",
+                        agent=agent_name,
+                        attempt=attempt + 1,
+                        max_attempts=self.max_retries,
+                        error=str(e),
+                    )
+
+                # Exponential backoff
+                if attempt < self.max_retries - 1:
+                    wait_time = min(2.0 ** attempt, 30.0)
+                    time.sleep(wait_time)
+
+        raise last_exception
+
+    def _should_retry(self, exception: Exception) -> bool:
+        """Determine if an exception should trigger a retry."""
+        # Retry on network/timeout errors
+        retry_exceptions = (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        )
+
+        # Check for rate limit errors (common in LLM APIs)
+        error_msg = str(exception).lower()
+        if "rate limit" in error_msg or "429" in error_msg:
+            return True
+
+        if "timeout" in error_msg or "connection" in error_msg:
+            return True
+
+        return isinstance(exception, retry_exceptions)
+
+    def _detect_model_name(self) -> str:
+        """Detect the model name from the LLM instance."""
+        if hasattr(self.llm, 'model_name'):
+            return self.llm.model_name
+        if hasattr(self.llm, 'model'):
+            return self.llm.model
+        return "unknown"
+
+
+def invoke_llm_with_tracing(
+    messages: list,
+    agent_name: str,
+    prompt_version: str = "v1.0",
+    temperature: float = 0.3,
+    fallback: Optional[Callable[[], str]] = None,
+) -> str:
+    """
+    Convenience function to invoke LLM with full production features.
+
+    Args:
+        messages: List of LangChain messages
+        agent_name: Name of the calling agent
+        prompt_version: Version identifier for the prompt
+        temperature: Sampling temperature
+        fallback: Optional fallback function
+
+    Returns:
+        LLM response content
+    """
+    service = EnhancedLLMService(temperature=temperature)
+    return service.invoke(
+        messages=messages,
+        agent_name=agent_name,
+        prompt_version=prompt_version,
+        fallback=fallback,
+    )

@@ -18,8 +18,10 @@ class FlightOptimizationAgent:
     """
 
     # Thresholds for treatment decisions
-    LF_NEEDS_TREATMENT = 0.85  # Load factor below this needs proactive offers
-    LF_URGENT = 0.70  # Below this is high priority
+    # Revenue-driven approach: Include cabins up to 95% full so Offer Orchestration
+    # can make EV-based decisions. Only truly sold-out cabins are excluded.
+    LF_NEEDS_TREATMENT = 0.95  # Load factor below this can be offered
+    LF_URGENT = 0.80  # Below this is high priority (needs proactive treatment)
     MIN_SEATS_FOR_OFFER = 2  # Need at least this many seats to offer
 
     def __init__(self):

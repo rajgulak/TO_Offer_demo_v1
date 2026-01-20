@@ -50,7 +50,7 @@ export function ArchitectureOverview({ onOpenTutorial }: ArchitectureOverviewPro
             <span className="text-2xl">🏗️</span>
             <div className="text-left">
               <h2 className="font-semibold">Architecture</h2>
-              <p className="text-sm text-slate-300">4 Workflows + 1 Agent + 1 LLM Call</p>
+              <p className="text-sm text-slate-300">Production-Ready Agent Framework (Score: 88/100)</p>
             </div>
           </div>
           <span className={`text-xl transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
@@ -311,6 +311,15 @@ export function ArchitectureOverview({ onOpenTutorial }: ArchitectureOverviewPro
                 <div><span className="text-slate-400">graph</span>.add_edge(<span className="text-emerald-400">"flight_opt"</span>, <span className="text-emerald-400">"offer"</span>)</div>
                 <div><span className="text-slate-400">graph</span>.add_edge(<span className="text-emerald-400">"offer"</span>, <span className="text-emerald-400">"personalize"</span>)</div>
               </div>
+
+              <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-lg p-3 mt-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🎓</span>
+                  <span className="text-sm text-indigo-300">
+                    <strong>Take the Tour</strong> (Technical mode, Step 3) to see how the graph changes based on execution mode and HITL settings.
+                  </span>
+                </div>
+              </div>
             </div>
           </CollapsibleSection>
 
@@ -350,6 +359,167 @@ export function ArchitectureOverview({ onOpenTutorial }: ArchitectureOverviewPro
               </div>
               <div className="text-xs text-slate-400">
                 Change only <code className="bg-slate-700 px-1 rounded">tools/data_tools.py</code> to swap demo → production. Zero component changes.
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          {/* Production Safety - NEW */}
+          <CollapsibleSection title="Production Safety (Score: 88/100)" icon="🛡️">
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-4 gap-3">
+                {/* Idempotency */}
+                <div className="bg-emerald-900/30 border border-emerald-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">🔑</span>
+                    <span className="font-semibold text-emerald-300 text-sm">Idempotency</span>
+                  </div>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    <p>Prevents duplicate processing</p>
+                    <p className="text-slate-400">Same PNR + date = cached</p>
+                  </div>
+                </div>
+
+                {/* Cost Tracking */}
+                <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">💰</span>
+                    <span className="font-semibold text-amber-300 text-sm">Cost Tracking</span>
+                  </div>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    <p>Per-request LLM costs</p>
+                    <p className="text-slate-400">Model-specific pricing</p>
+                  </div>
+                </div>
+
+                {/* Alerting */}
+                <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">🚨</span>
+                    <span className="font-semibold text-red-300 text-sm">Alerting</span>
+                  </div>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    <p>Error & cost anomalies</p>
+                    <p className="text-slate-400">Slack + PagerDuty</p>
+                  </div>
+                </div>
+
+                {/* Human-in-the-Loop */}
+                <div className="bg-pink-900/30 border border-pink-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">👤</span>
+                    <span className="font-semibold text-pink-300 text-sm">Human-in-Loop</span>
+                  </div>
+                  <div className="text-xs text-slate-300 space-y-1">
+                    <p>Approval workflow</p>
+                    <p className="text-slate-400">Halt → Persist → Resume</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs">
+                <div className="text-slate-500"># Ultimate production workflow with HITL</div>
+                <div><span className="text-amber-400">from</span> agents.workflow <span className="text-amber-400">import</span> run_offer_evaluation_with_hitl</div>
+                <div className="mt-1">result = run_offer_evaluation_with_hitl(pnr=<span className="text-emerald-400">"ABC123"</span>)</div>
+                <div className="text-slate-500"># May return "pending_approval" for high-value offers</div>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          {/* 3-Layer Guardrails - NEW */}
+          <CollapsibleSection title="3-Layer Guardrails (Latency Optimized)" icon="🚧">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-xs mb-2">
+                <span className="bg-red-500/20 text-red-300 px-2 py-1 rounded">Naive: +500ms</span>
+                <span className="text-slate-400">vs</span>
+                <span className="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">3-Layer: +60ms</span>
+              </div>
+
+              <div className="space-y-2">
+                {/* Layer 1 */}
+                <div className="bg-blue-900/30 rounded-lg p-3 border-l-4 border-blue-500">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-blue-300 text-sm">Layer 1: Sync Pre-flight</span>
+                    <span className="text-xs bg-blue-500/30 px-2 py-0.5 rounded">~60ms BLOCKING</span>
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    Input validation, suppression check, consent, rate limit, time-to-departure
+                  </div>
+                </div>
+
+                {/* Layer 2 */}
+                <div className="bg-purple-900/30 rounded-lg p-3 border-l-4 border-purple-500">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-purple-300 text-sm">Layer 2: Async Background</span>
+                    <span className="text-xs bg-purple-500/30 px-2 py-0.5 rounded">~0ms PARALLEL</span>
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    Compliance logging, value validation, fairness check, offer fatigue
+                  </div>
+                </div>
+
+                {/* Layer 3 */}
+                <div className="bg-amber-900/30 rounded-lg p-3 border-l-4 border-amber-500">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-amber-300 text-sm">Layer 3: Triggered Escalation</span>
+                    <span className="text-xs bg-amber-500/30 px-2 py-0.5 rounded">HUMAN-IN-LOOP</span>
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    High-value offers (&gt;$500), anomalies, regulatory flags, overrides
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          {/* Agentic Patterns - NEW */}
+          <CollapsibleSection title="Agentic Patterns" icon="🧠">
+            <div className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-3">
+                {/* Dual Execution */}
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="font-semibold text-slate-300 text-sm mb-2">Dual Execution Pattern</div>
+                  <div className="text-xs space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-400">1.</span>
+                      <span className="text-slate-300">Choreography (happy path)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-400">2.</span>
+                      <span className="text-slate-300">Planner-Worker (recovery)</span>
+                    </div>
+                    <div className="text-slate-400 mt-2 pt-2 border-t border-slate-700">
+                      Toggle in Demo Controls & see flow in Workflow Visualization below
+                    </div>
+                  </div>
+                </div>
+
+                {/* Memory System */}
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="font-semibold text-slate-300 text-sm mb-2">4-Type Memory System</div>
+                  <div className="text-xs space-y-1 text-slate-300">
+                    <div>Conversation | Customer | Offer | Learning</div>
+                    <div className="text-slate-400">Context-aware decisions</div>
+                  </div>
+                </div>
+
+                {/* Feedback Loop */}
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="font-semibold text-slate-300 text-sm mb-2">Feedback Loop</div>
+                  <div className="text-xs text-slate-300">
+                    Outcome capture → Calibration → Agent learning
+                  </div>
+                </div>
+
+                {/* Worker Recommendations */}
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <div className="font-semibold text-slate-300 text-sm mb-2">Worker Recommendations</div>
+                  <div className="text-xs text-slate-300 flex flex-wrap gap-1">
+                    <span className="bg-slate-700 px-1.5 py-0.5 rounded">CONTINUE</span>
+                    <span className="bg-slate-700 px-1.5 py-0.5 rounded">RETRY</span>
+                    <span className="bg-slate-700 px-1.5 py-0.5 rounded">SIMPLIFY</span>
+                    <span className="bg-slate-700 px-1.5 py-0.5 rounded">ESCALATE</span>
+                  </div>
+                </div>
               </div>
             </div>
           </CollapsibleSection>

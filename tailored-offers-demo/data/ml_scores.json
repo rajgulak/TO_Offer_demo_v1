@@ -2,6 +2,7 @@
   "description": "Simulated ML model P(buy) scores by product and price - In production, these come from the ML team's model",
   "scores": {
     "ABC123": {
+      "_scenario": "EASY CHOICE - High confidence, clear Business EV winner",
       "pnr_locator": "ABC123",
       "customer_id": "CUST001",
       "flight_id": "AA2847",
@@ -10,37 +11,35 @@
       "propensity_scores": {
         "IU_BUSINESS": {
           "price_points": {
-            "299": { "p_buy": 0.42 },
-            "249": { "p_buy": 0.55 },
-            "199": { "p_buy": 0.68 },
-            "149": { "p_buy": 0.79 }
+            "299": { "p_buy": 0.45 },
+            "249": { "p_buy": 0.58 },
+            "199": { "p_buy": 0.72 },
+            "149": { "p_buy": 0.82 }
           },
-          "confidence": 0.85,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+          "confidence": 0.85
         },
-        "IU_FIRST": {
+        "IU_PREMIUM_ECONOMY": {
           "price_points": {
-            "599": { "p_buy": 0.18 },
-            "499": { "p_buy": 0.28 },
-            "399": { "p_buy": 0.38 }
+            "179": { "p_buy": 0.55 },
+            "149": { "p_buy": 0.68 },
+            "129": { "p_buy": 0.78 }
           },
-          "confidence": 0.72,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+          "confidence": 0.82
         },
         "MCE": {
           "price_points": {
-            "89": { "p_buy": 0.72 },
-            "69": { "p_buy": 0.82 },
-            "49": { "p_buy": 0.91 }
+            "59": { "p_buy": 0.75 },
+            "49": { "p_buy": 0.85 },
+            "39": { "p_buy": 0.92 }
           },
-          "confidence": 0.91,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+          "confidence": 0.91
         }
       },
       "segment": "high_value_leisure",
       "price_sensitivity": "medium"
     },
     "XYZ789": {
+      "_scenario": "CONFIDENCE TRADE-OFF: High Business EV ($165) but ONLY 50% ML confidence. MCE lower EV ($52) but 92% confidence. Agent must decide: trust uncertain prediction or play safe?",
       "pnr_locator": "XYZ789",
       "customer_id": "CUST002",
       "flight_id": "AA1234",
@@ -51,35 +50,29 @@
           "price_points": {
             "349": { "p_buy": 0.65 },
             "299": { "p_buy": 0.75 },
-            "249": { "p_buy": 0.82 },
-            "199": { "p_buy": 0.88 }
+            "249": { "p_buy": 0.85 },
+            "179": { "p_buy": 0.92 }
           },
-          "confidence": 0.92,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose"]
-        },
-        "IU_FIRST": {
-          "price_points": {
-            "699": { "p_buy": 0.45 },
-            "599": { "p_buy": 0.55 },
-            "499": { "p_buy": 0.65 }
-          },
-          "confidence": 0.88,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose"]
+          "confidence": 0.50,
+          "_trade_off": "HIGH EV but LOW confidence - model is uncertain about this prediction!",
+          "note": "New customer segment with limited training data - prediction unreliable"
         },
         "MCE": {
           "price_points": {
-            "89": { "p_buy": 0.35 },
-            "69": { "p_buy": 0.45 },
-            "49": { "p_buy": 0.55 }
+            "49": { "p_buy": 0.65 },
+            "39": { "p_buy": 0.75 },
+            "29": { "p_buy": 0.82 }
           },
-          "confidence": 0.88,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+          "confidence": 0.92,
+          "_trade_off": "Lower EV but HIGH confidence - model is very sure about this prediction",
+          "note": "Well-established pattern for this customer type"
         }
       },
-      "segment": "frequent_business",
+      "segment": "new_business_segment",
       "price_sensitivity": "low"
     },
     "LMN456": {
+      "_scenario": "RELATIONSHIP TRADE-OFF: High EV but customer had recent service issue. Push aggressive offer ($770) or nurture with gentler MCE offer?",
       "pnr_locator": "LMN456",
       "customer_id": "CUST003",
       "flight_id": "AA100",
@@ -91,38 +84,33 @@
             "870": { "p_buy": 0.72 },
             "820": { "p_buy": 0.78 },
             "770": { "p_buy": 0.85 },
-            "720": { "p_buy": 0.89 },
-            "670": { "p_buy": 0.92 }
+            "720": { "p_buy": 0.89 }
           },
           "confidence": 0.95,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose", "international"],
           "note": "Executive Platinum with high upgrade acceptance history"
         },
-        "IU_FIRST": {
+        "IU_PREMIUM_ECONOMY": {
           "price_points": {
-            "1299": { "p_buy": 0.55 },
-            "1199": { "p_buy": 0.62 },
-            "1099": { "p_buy": 0.70 },
-            "999": { "p_buy": 0.78 }
+            "499": { "p_buy": 0.35 },
+            "449": { "p_buy": 0.42 },
+            "399": { "p_buy": 0.50 }
           },
-          "confidence": 0.93,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "trip_purpose", "international"]
+          "confidence": 0.80,
+          "note": "Low PE interest - already in PE, prefers Business"
         },
         "MCE": {
           "price_points": {
-            "89": { "p_buy": 0.15 },
-            "69": { "p_buy": 0.20 },
-            "49": { "p_buy": 0.25 }
+            "89": { "p_buy": 0.10 }
           },
           "confidence": 0.70,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"],
-          "note": "Low MCE interest - customer already in Premium Economy, prefers Business"
+          "note": "Very low MCE interest - customer already in Premium Economy"
         }
       },
       "segment": "elite_business",
       "price_sensitivity": "low"
     },
     "DEF321": {
+      "_scenario": "GUARDRAIL: INVENTORY - Good propensity BUT Flight MCP returns 0 seats. Agent blocked.",
       "pnr_locator": "DEF321",
       "customer_id": "CUST004",
       "flight_id": "AA555",
@@ -131,37 +119,28 @@
       "propensity_scores": {
         "IU_BUSINESS": {
           "price_points": {
-            "199": { "p_buy": 0.12 },
-            "149": { "p_buy": 0.18 },
-            "99": { "p_buy": 0.25 }
+            "199": { "p_buy": 0.55 },
+            "179": { "p_buy": 0.65 },
+            "149": { "p_buy": 0.75 }
           },
-          "confidence": 0.45,
-          "features_used": ["fare_class", "days_to_departure"],
-          "note": "cold_start - limited customer history"
-        },
-        "IU_FIRST": {
-          "price_points": {
-            "399": { "p_buy": 0.05 },
-            "299": { "p_buy": 0.08 }
-          },
-          "confidence": 0.35,
-          "features_used": ["fare_class", "days_to_departure"],
-          "note": "cold_start - limited customer history"
+          "confidence": 0.78,
+          "note": "Good propensity BUT inventory is SOLD OUT"
         },
         "MCE": {
           "price_points": {
-            "69": { "p_buy": 0.25 },
-            "49": { "p_buy": 0.35 },
-            "29": { "p_buy": 0.48 }
+            "39": { "p_buy": 0.70 },
+            "29": { "p_buy": 0.82 },
+            "25": { "p_buy": 0.88 }
           },
-          "confidence": 0.55,
-          "features_used": ["fare_class", "days_to_departure"]
+          "confidence": 0.85,
+          "note": "Good MCE propensity BUT MCE also nearly full"
         }
       },
-      "segment": "new_customer",
-      "price_sensitivity": "high"
+      "segment": "mid_value_mixed",
+      "price_sensitivity": "medium"
     },
     "GHI654": {
+      "_scenario": "GUARDRAIL: CUSTOMER - Good propensity BUT Customer MCP returns suppression. Agent blocked.",
       "pnr_locator": "GHI654",
       "customer_id": "CUST005",
       "flight_id": "AA2847",
@@ -170,31 +149,29 @@
       "propensity_scores": {
         "IU_BUSINESS": {
           "price_points": {
-            "299": { "p_buy": 0.32 },
-            "249": { "p_buy": 0.42 },
-            "199": { "p_buy": 0.52 },
-            "149": { "p_buy": 0.62 }
+            "299": { "p_buy": 0.50 },
+            "249": { "p_buy": 0.62 },
+            "199": { "p_buy": 0.72 },
+            "149": { "p_buy": 0.80 }
           },
-          "confidence": 0.78,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+          "confidence": 0.82,
+          "note": "Good propensity BUT customer is SUPPRESSED due to complaint"
         },
-        "IU_FIRST": {
+        "IU_PREMIUM_ECONOMY": {
           "price_points": {
-            "499": { "p_buy": 0.15 },
-            "399": { "p_buy": 0.22 },
-            "299": { "p_buy": 0.30 }
+            "179": { "p_buy": 0.58 },
+            "149": { "p_buy": 0.70 },
+            "129": { "p_buy": 0.80 }
           },
-          "confidence": 0.68,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "days_to_departure"]
+          "confidence": 0.80
         },
         "MCE": {
           "price_points": {
-            "89": { "p_buy": 0.58 },
-            "69": { "p_buy": 0.71 },
-            "49": { "p_buy": 0.82 }
+            "59": { "p_buy": 0.72 },
+            "49": { "p_buy": 0.82 },
+            "39": { "p_buy": 0.90 }
           },
-          "confidence": 0.86,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"]
+          "confidence": 0.88
         }
       },
       "segment": "mid_value_mixed",
@@ -203,6 +180,7 @@
       "suppression_reason": "recent_complaint"
     },
     "JKL789": {
+      "_scenario": "PRICE TRADE-OFF: 18% P(buy) at $199 vs 52% at $159. Agent must decide discount level.",
       "pnr_locator": "JKL789",
       "customer_id": "CUST006",
       "flight_id": "AA2847",
@@ -211,32 +189,29 @@
       "propensity_scores": {
         "IU_BUSINESS": {
           "price_points": {
-            "199": { "p_buy": 0.25 },
-            "179": { "p_buy": 0.35 },
-            "159": { "p_buy": 0.48 }
+            "199": { "p_buy": 0.18 },
+            "179": { "p_buy": 0.28 },
+            "159": { "p_buy": 0.52 },
+            "139": { "p_buy": 0.72 }
           },
-          "confidence": 0.82,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "price_sensitivity", "avg_upgrade_spend"],
-          "note": "Highly price-sensitive - acceptance rate jumps significantly at discounted prices"
+          "confidence": 0.85,
+          "note": "PRICE SENSITIVE: Only 18% at $199 but jumps to 52% at $159 (20% discount)"
         },
-        "IU_FIRST": {
+        "IU_PREMIUM_ECONOMY": {
           "price_points": {
-            "499": { "p_buy": 0.05 },
-            "399": { "p_buy": 0.08 },
-            "299": { "p_buy": 0.12 }
+            "129": { "p_buy": 0.22 },
+            "109": { "p_buy": 0.38 },
+            "99": { "p_buy": 0.55 }
           },
-          "confidence": 0.65,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf"],
-          "note": "Very low interest in First Class even at discount"
+          "confidence": 0.82
         },
         "MCE": {
           "price_points": {
-            "39": { "p_buy": 0.55 },
-            "29": { "p_buy": 0.72 },
+            "39": { "p_buy": 0.45 },
+            "29": { "p_buy": 0.68 },
             "19": { "p_buy": 0.85 }
           },
-          "confidence": 0.88,
-          "features_used": ["loyalty_tier", "historical_upgrades", "flight_ldf", "fare_class"],
+          "confidence": 0.90,
           "note": "Strong MCE interest at low price points"
         }
       },

@@ -1,0 +1,106 @@
+{
+  "_metadata": {
+    "description": "Pre-approved discount policies - Approved by Revenue Management & Customer Experience teams",
+    "approved_by": "Revenue Management Committee",
+    "approval_date": "2025-12-01",
+    "review_date": "2026-06-01",
+    "version": "1.0"
+  },
+
+  "policies": {
+    "GOODWILL_RECOVERY": {
+      "policy_id": "POL-GW-001",
+      "name": "Goodwill Recovery Discount",
+      "description": "Applied when customer had recent service issue to rebuild relationship",
+      "approved_by": "Customer Experience Team",
+      "triggers": ["recent_service_issue", "complaint_recovery"],
+      "discount_percent": 10,
+      "max_discount_cap": 10,
+      "eligible_segments": ["elite_business", "high_value_leisure", "mid_value_business"],
+      "notes": "Protects high-value customer relationships after service failures"
+    },
+
+    "PRICE_SENSITIVE_HIGH": {
+      "policy_id": "POL-PS-001",
+      "name": "High Price Sensitivity Discount",
+      "description": "Applied to price-sensitive customers to improve conversion",
+      "approved_by": "Revenue Management",
+      "triggers": ["high_price_sensitivity"],
+      "discount_percent": 15,
+      "max_discount_cap": 15,
+      "eligible_segments": ["budget_leisure", "low_value_mixed"],
+      "notes": "Without discount, conversion rate drops significantly"
+    },
+
+    "PRICE_SENSITIVE_MEDIUM": {
+      "policy_id": "POL-PS-002",
+      "name": "Medium Price Sensitivity Discount",
+      "description": "Small incentive for moderately price-sensitive customers",
+      "approved_by": "Revenue Management",
+      "triggers": ["medium_price_sensitivity"],
+      "discount_percent": 5,
+      "max_discount_cap": 5,
+      "eligible_segments": ["all"],
+      "notes": "Optional - apply only if needed for conversion"
+    },
+
+    "LOYALTY_APPRECIATION": {
+      "policy_id": "POL-LY-001",
+      "name": "Loyalty Tier Appreciation",
+      "description": "Thank-you discount for top-tier loyalty members",
+      "approved_by": "Loyalty Program Team",
+      "triggers": ["executive_platinum", "platinum_pro"],
+      "discount_percent": 5,
+      "max_discount_cap": 5,
+      "eligible_segments": ["elite_business"],
+      "notes": "Stackable with other discounts up to segment max"
+    },
+
+    "NO_DISCOUNT": {
+      "policy_id": "POL-ND-001",
+      "name": "No Discount (Standard Pricing)",
+      "description": "Full price when no discount triggers apply",
+      "approved_by": "Revenue Management",
+      "triggers": ["default"],
+      "discount_percent": 0,
+      "max_discount_cap": 0,
+      "eligible_segments": ["all"],
+      "notes": "Default policy when customer shows no price sensitivity"
+    }
+  },
+
+  "segment_caps": {
+    "_description": "Maximum total discount allowed per customer segment (cannot exceed even with stacked policies)",
+    "elite_business": {
+      "max_total_discount": 20,
+      "reason": "High lifetime value justifies protecting relationship"
+    },
+    "high_value_leisure": {
+      "max_total_discount": 15,
+      "reason": "Good customers but more price elastic"
+    },
+    "mid_value_business": {
+      "max_total_discount": 15,
+      "reason": "Standard business traveler caps"
+    },
+    "mid_value_mixed": {
+      "max_total_discount": 10,
+      "reason": "Mixed travel patterns, moderate caps"
+    },
+    "budget_leisure": {
+      "max_total_discount": 15,
+      "reason": "Price sensitive but still need margin protection"
+    },
+    "low_value_mixed": {
+      "max_total_discount": 10,
+      "reason": "Lower lifetime value, protect margins"
+    }
+  },
+
+  "governance": {
+    "audit_required": true,
+    "audit_frequency": "monthly",
+    "exception_approval": "VP Revenue Management",
+    "change_process": "Requires Revenue Management Committee approval"
+  }
+}

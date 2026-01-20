@@ -24,11 +24,25 @@ from tools.data_tools import get_enriched_pnr, get_all_reservations, get_custome
 from agents.state import create_initial_state, OfferDecision
 from agents.customer_intelligence import CustomerIntelligenceAgent
 from agents.flight_optimization import FlightOptimizationAgent
-from agents.offer_orchestration import OfferOrchestrationAgent, ORCHESTRATION_SYSTEM_PROMPT
+# ReWOO Pattern: Planner-Worker-Solver for Offer Orchestration
+from agents.offer_orchestration_rewoo import OfferOrchestrationReWOO as OfferOrchestrationAgent, ORCHESTRATION_SYSTEM_PROMPT
 from agents.personalization import PersonalizationAgent, PERSONALIZATION_SYSTEM_PROMPT
 from agents.channel_timing import ChannelTimingAgent
 from agents.measurement_learning import MeasurementLearningAgent
 from agents.llm_service import get_llm_provider_name, is_llm_available
+from agents.workflow import USE_MCP
+
+# Feedback loop system
+from infrastructure.feedback import (
+    get_feedback_manager,
+    OutcomeType,
+    record_offer_outcome,
+    get_calibration_report,
+)
+
+# MCP client for async data loading (only import if USE_MCP is enabled)
+if USE_MCP:
+    from tools.mcp_client import MCPDataClient
 
 
 app = FastAPI(
@@ -189,21 +203,40 @@ DEFAULT_PROMPTS = {
 custom_prompts: Dict[str, str] = {}
 
 
+# ============ Data Loading (MCP-aware) ============
+
+async def load_enriched_pnr(pnr_locator: str) -> Optional[Dict[str, Any]]:
+    """
+    Load enriched PNR data using the appropriate method.
+
+    - USE_MCP=true: Calls MCP server via langchain-mcp-adapters
+    - USE_MCP=false: Direct Python function calls (default)
+
+    This ensures the architecture diagram matches actual data flow.
+    """
+    if USE_MCP:
+        # Use MCP client to load data via MCP server
+        client = MCPDataClient()
+        return await client.get_enriched_pnr(pnr_locator)
+    else:
+        # Direct function call (default, faster for development)
+        return get_enriched_pnr(pnr_locator)
+
+
 # ============ Helper Functions ============
 
 def get_scenario_tag(pnr: str, customer: Dict, reservation: Dict) -> str:
-    """Determine scenario tag for a PNR"""
-    if customer.get("suppression", {}).get("is_suppressed"):
-        return "Suppressed"
-    if customer.get("aadv_tenure_days", 0) < 60:
-        return "Cold Start"
-    if reservation.get("intl_trp_ind", 0) == 1:
-        return "International"
-    # Check for price-sensitive customers (low upgrade acceptance rate + low avg spend)
-    historical = customer.get("historical_upgrades", {})
-    if historical.get("acceptance_rate", 1) < 0.15 and historical.get("avg_upgrade_spend", 100) < 35:
-        return "Price Sensitive"
-    return "Standard"
+    """Determine scenario tag for a PNR - maps to frontend scenario descriptions"""
+    # Direct mapping based on PNR to match our 6 demo scenarios
+    scenario_map = {
+        "ABC123": "Easy Choice",           # Baseline: clear Business EV winner
+        "XYZ789": "Confidence Trade-off",  # Agent trade-off: high EV but low ML confidence
+        "LMN456": "Relationship Trade-off", # Agent trade-off: high value customer with recent issue
+        "DEF321": "Guardrail: Inventory",  # Guardrail blocks: 0 seats available
+        "GHI654": "Guardrail: Customer",   # Guardrail blocks: customer suppressed
+        "JKL789": "Price Trade-off",       # Agent trade-off: discount level decision
+    }
+    return scenario_map.get(pnr, "Unknown")
 
 
 def extract_agent_summary(agent_id: str, state: Dict) -> str:
@@ -309,6 +342,35 @@ async def get_llm_status():
     }
 
 
+@app.get("/api/mcp-status")
+async def get_mcp_status():
+    """Get MCP (Model Context Protocol) status"""
+    return {
+        "mcp_enabled": USE_MCP,
+        "data_source": "MCP Server" if USE_MCP else "Direct Function Calls",
+        "description": (
+            "Data loaded via MCP client/server using langchain-mcp-adapters"
+            if USE_MCP else
+            "Data loaded via direct Python function calls (default)"
+        )
+    }
+
+
+@app.get("/api/system-status")
+async def get_system_status():
+    """Get combined system status (LLM + MCP)"""
+    return {
+        "llm": {
+            "available": is_llm_available(),
+            "provider": get_llm_provider_name()
+        },
+        "mcp": {
+            "enabled": USE_MCP,
+            "data_source": "MCP Server" if USE_MCP else "Direct"
+        }
+    }
+
+
 @app.get("/api/agents/{agent_id}/prompt")
 async def get_agent_prompt(agent_id: str):
     """Get the prompt configuration for an agent"""
@@ -377,11 +439,17 @@ async def reset_agent_prompt(agent_id: str):
 
 @app.get("/api/pnrs", response_model=List[PNRSummary])
 async def list_pnrs():
-    """List all available PNRs with summary info"""
+    """
+    List all available PNRs with summary info.
+
+    Note: Uses direct data loading for performance (loading 6+ PNRs via MCP
+    would spawn multiple server processes). The evaluate endpoint uses MCP.
+    """
     reservations = get_all_reservations()
     result = []
 
     for res in reservations:
+        # Direct call for performance in list view
         enriched = get_enriched_pnr(res["pnr_loctr_id"])
         if enriched:
             customer = enriched["customer"]
@@ -401,8 +469,12 @@ async def list_pnrs():
 
 @app.get("/api/pnrs/{pnr_locator}")
 async def get_pnr(pnr_locator: str):
-    """Get enriched PNR data"""
-    enriched = get_enriched_pnr(pnr_locator)
+    """
+    Get enriched PNR data.
+
+    Uses MCP-aware loading (respects USE_MCP environment variable).
+    """
+    enriched = await load_enriched_pnr(pnr_locator)
     if not enriched:
         raise HTTPException(status_code=404, detail=f"PNR {pnr_locator} not found")
 
@@ -443,14 +515,24 @@ async def get_pnr(pnr_locator: str):
 
 
 @app.get("/api/pnrs/{pnr_locator}/evaluate")
-async def evaluate_pnr_stream(pnr_locator: str):
+async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreography"):
     """
     Stream agent evaluation results using Server-Sent Events.
 
     Each agent's result is streamed as it completes, allowing
     real-time visualization in the frontend.
+
+    Query params:
+        execution_mode: "choreography" (default) or "planner-worker"
+            - choreography: Sequential flow, each node knows next step
+            - planner-worker: LLM planner decides next step dynamically
+
+    Data loading respects USE_MCP environment variable:
+    - USE_MCP=true: Data loaded via MCP client → MCP server
+    - USE_MCP=false: Data loaded via direct function calls (default)
     """
-    enriched = get_enriched_pnr(pnr_locator)
+    # Load data using MCP-aware loader
+    enriched = await load_enriched_pnr(pnr_locator)
     if not enriched:
         async def error_generator():
             yield {
@@ -460,7 +542,7 @@ async def evaluate_pnr_stream(pnr_locator: str):
         return EventSourceResponse(error_generator())
 
     async def event_generator():
-        # Initialize state
+        # Initialize state with data from MCP or direct load
         state = create_initial_state(pnr_locator)
         state["customer_data"] = enriched["customer"]
         state["flight_data"] = enriched["flight"]
@@ -469,15 +551,37 @@ async def evaluate_pnr_stream(pnr_locator: str):
 
         total_steps = 6
         start_time = time.time()
+        data_source = "MCP" if USE_MCP else "Direct"
+        is_planner_worker = execution_mode == "planner-worker"
 
-        # Send initial event
+        # Send initial event with actual data source and execution mode
         yield {
             "event": "pipeline_start",
             "data": json.dumps({
                 "pnr": pnr_locator,
-                "total_steps": total_steps
+                "total_steps": total_steps,
+                "mcp_enabled": USE_MCP,
+                "data_source": data_source,
+                "execution_mode": execution_mode
             })
         }
+
+        # For planner-worker mode, emit planner events
+        if is_planner_worker:
+            yield {
+                "event": "planner_start",
+                "data": json.dumps({
+                    "message": "Planner analyzing state and deciding execution plan..."
+                })
+            }
+            await asyncio.sleep(0.3)  # Simulate planner thinking
+            yield {
+                "event": "planner_decision",
+                "data": json.dumps({
+                    "plan": ["customer_intelligence", "flight_optimization", "offer_orchestration", "personalization", "channel_timing", "measurement"],
+                    "reasoning": "Standard evaluation flow - no errors detected, proceeding with full pipeline"
+                })
+            }
 
         # Process each agent
         agent_sequence = [
@@ -606,6 +710,420 @@ async def evaluate_pnr_stream(pnr_locator: str):
         }
 
     return EventSourceResponse(event_generator())
+
+
+# ============ Outcome Capture API (Feedback Loop) ============
+
+class OutcomeRequest(BaseModel):
+    """Request to record an offer outcome."""
+    pnr: str
+    customer_id: str
+    offer_type: str
+    offer_price: float
+    expected_probability: float
+    expected_value: float
+    outcome: str  # "accepted", "rejected", "expired", "clicked"
+    channel: str = "unknown"
+    discount_percent: float = 0.0
+    customer_tier: Optional[str] = None
+    experiment_group: Optional[str] = None
+    customer_feedback: Optional[str] = None
+
+
+class OutcomeUpdateRequest(BaseModel):
+    """Request to update an existing outcome."""
+    outcome: str  # "accepted", "rejected", "expired"
+    customer_feedback: Optional[str] = None
+
+
+@app.post("/api/outcomes")
+async def record_outcome(request: OutcomeRequest):
+    """
+    Record the outcome of an offer.
+
+    This is the critical feedback loop endpoint.
+    Call this when a customer accepts, rejects, or ignores an offer.
+
+    Example:
+        POST /api/outcomes
+        {
+            "pnr": "ABC123",
+            "customer_id": "CUST456",
+            "offer_type": "IU_BUSINESS",
+            "offer_price": 299.00,
+            "expected_probability": 0.25,
+            "expected_value": 74.75,
+            "outcome": "accepted",
+            "channel": "email"
+        }
+    """
+    try:
+        outcome_type = OutcomeType(request.outcome)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid outcome: {request.outcome}. Must be one of: accepted, rejected, expired, clicked, pending"
+        )
+
+    feedback = get_feedback_manager()
+
+    outcome = feedback.record_outcome(
+        pnr=request.pnr,
+        customer_id=request.customer_id,
+        offer_type=request.offer_type,
+        offer_price=request.offer_price,
+        expected_probability=request.expected_probability,
+        expected_value=request.expected_value,
+        outcome=outcome_type,
+        channel=request.channel,
+        discount_percent=request.discount_percent,
+        customer_tier=request.customer_tier,
+        experiment_group=request.experiment_group,
+        customer_feedback=request.customer_feedback,
+    )
+
+    return {
+        "status": "recorded",
+        "outcome_id": outcome.outcome_id,
+        "pnr": outcome.pnr,
+        "outcome": outcome.actual_outcome.value,
+        "actual_value": outcome.actual_value,
+        "prediction_error": outcome.prediction_error,
+    }
+
+
+@app.get("/api/outcomes/{pnr}")
+async def get_outcome(pnr: str):
+    """
+    Get the recorded outcome for a specific PNR.
+
+    Returns the complete outcome record including prediction vs actual.
+    """
+    feedback = get_feedback_manager()
+    outcome = feedback.get_outcome(pnr)
+
+    if not outcome:
+        raise HTTPException(status_code=404, detail=f"No outcome recorded for PNR {pnr}")
+
+    return outcome.to_dict()
+
+
+@app.put("/api/outcomes/{pnr}")
+async def update_outcome(pnr: str, request: OutcomeUpdateRequest):
+    """
+    Update the outcome for a pending offer.
+
+    Use this when outcome information arrives later (e.g., async conversion tracking).
+    """
+    try:
+        outcome_type = OutcomeType(request.outcome)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid outcome: {request.outcome}"
+        )
+
+    feedback = get_feedback_manager()
+    outcome = feedback.update_outcome(
+        pnr=pnr,
+        outcome=outcome_type,
+        customer_feedback=request.customer_feedback,
+    )
+
+    if not outcome:
+        raise HTTPException(status_code=404, detail=f"No outcome found for PNR {pnr}")
+
+    return {
+        "status": "updated",
+        "pnr": pnr,
+        "outcome": outcome.actual_outcome.value,
+    }
+
+
+@app.get("/api/outcomes/customer/{customer_id}")
+async def get_customer_outcomes(customer_id: str):
+    """
+    Get all recorded outcomes for a specific customer.
+
+    Useful for understanding customer behavior patterns.
+    """
+    feedback = get_feedback_manager()
+    outcomes = feedback.get_customer_history(customer_id)
+
+    return {
+        "customer_id": customer_id,
+        "total_outcomes": len(outcomes),
+        "outcomes": [o.to_dict() for o in outcomes],
+    }
+
+
+@app.get("/api/outcomes/stats")
+async def get_outcome_stats(days: int = 30):
+    """
+    Get summary statistics for outcomes.
+
+    Query params:
+        days: Number of days to analyze (default: 30)
+
+    Returns aggregate metrics including acceptance rate, revenue, and value capture.
+    """
+    feedback = get_feedback_manager()
+    stats = feedback.get_summary_stats(days=days)
+
+    return stats
+
+
+@app.get("/api/calibration")
+async def get_calibration(days: int = 30):
+    """
+    Get a calibration report for agent predictions.
+
+    Calibration measures how well predicted probabilities match actual outcomes.
+    A well-calibrated model predicting 30% acceptance should see ~30% actual.
+
+    Query params:
+        days: Number of days to analyze (default: 30)
+
+    Returns:
+        - Calibration buckets with predicted vs actual rates
+        - Overall calibration metrics (ECE, Brier score)
+        - Value capture analysis
+        - Segmented analysis by offer type, tier, channel
+    """
+    report = get_calibration_report(days=days)
+    return report.to_dict()
+
+
+@app.get("/api/feedback/{agent_name}")
+async def get_agent_feedback(agent_name: str, prompt_version: Optional[str] = None, days: int = 30):
+    """
+    Get feedback for a specific agent to improve.
+
+    This endpoint provides actionable recommendations based on actual outcomes.
+
+    Query params:
+        prompt_version: Specific prompt version to analyze (optional)
+        days: Number of days to analyze (default: 30)
+
+    Returns:
+        - Success rate and calibration metrics
+        - Whether agent is overconfident or underconfident
+        - Confidence adjustment recommendation
+        - Specific improvement recommendations
+        - Best/worst performing segments
+    """
+    feedback = get_feedback_manager()
+    agent_feedback = feedback.get_agent_feedback(
+        agent_name=agent_name,
+        prompt_version=prompt_version,
+        days=days,
+    )
+
+    return agent_feedback.to_dict()
+
+
+# ============ Human-in-the-Loop (HITL) API ============
+#
+# These endpoints enable true human-in-the-loop workflows:
+# 1. Pending approvals queue
+# 2. Approve/deny actions
+# 3. Resume workflow after approval
+#
+# Flow:
+#   1. POST /api/pnrs/{pnr}/evaluate-hitl → May return "pending_approval"
+#   2. GET /api/approvals/pending → List pending approvals
+#   3. POST /api/approvals/{id}/approve or /api/approvals/{id}/deny
+#   4. POST /api/approvals/{id}/resume → Complete the workflow
+# ============
+
+from infrastructure.human_in_loop import (
+    get_hitl_manager,
+    ApprovalStatus,
+)
+from agents.workflow import (
+    run_offer_evaluation_with_hitl,
+    resume_after_approval,
+    handle_denial,
+)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    """Request to approve or deny a pending approval."""
+    decided_by: str  # User ID or email
+    notes: Optional[str] = None
+    modified_offer: Optional[Dict[str, Any]] = None  # Human can modify the offer
+
+
+@app.get("/api/pnrs/{pnr_locator}/evaluate-hitl")
+async def evaluate_pnr_with_hitl(pnr_locator: str, force_approval: bool = False):
+    """
+    Evaluate a PNR with Human-in-the-Loop support.
+
+    This endpoint runs the full evaluation but may halt for human approval
+    if the offer triggers escalation rules (high-value, VIP, etc.).
+
+    Query params:
+        force_approval: Force human approval regardless of rules (for testing)
+
+    Returns:
+        - If approval needed: {"status": "pending_approval", "approval_request_id": "..."}
+        - If no approval needed: Normal evaluation result
+    """
+    result = run_offer_evaluation_with_hitl(
+        pnr_locator=pnr_locator,
+        force_approval=force_approval,
+    )
+    return result
+
+
+@app.get("/api/approvals/pending")
+async def get_pending_approvals():
+    """
+    Get all pending approval requests.
+
+    Returns a list of approval requests waiting for human decision.
+    Use this to populate an approval queue UI.
+    """
+    hitl = get_hitl_manager()
+    pending = hitl.get_pending_requests()
+
+    return {
+        "pending_count": len(pending),
+        "approvals": [req.to_dict() for req in pending],
+    }
+
+
+@app.get("/api/approvals/{request_id}")
+async def get_approval_request(request_id: str):
+    """
+    Get details of a specific approval request.
+
+    Returns full details including proposed offer, risk factors, and status.
+    """
+    hitl = get_hitl_manager()
+    request = hitl.get_request(request_id)
+
+    if not request:
+        raise HTTPException(status_code=404, detail=f"Approval request {request_id} not found")
+
+    return request.to_dict()
+
+
+@app.post("/api/approvals/{request_id}/approve")
+async def approve_request(request_id: str, decision: ApprovalDecisionRequest):
+    """
+    Approve a pending approval request.
+
+    After approval, call /api/approvals/{request_id}/resume to complete the workflow.
+
+    Body:
+        decided_by: User ID or email of approver
+        notes: Optional approval notes
+        modified_offer: Optional modified offer (human can adjust)
+    """
+    hitl = get_hitl_manager()
+    request = hitl.approve(
+        request_id=request_id,
+        decided_by=decision.decided_by,
+        notes=decision.notes,
+        modified_offer=decision.modified_offer,
+    )
+
+    if not request:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not approve request - may not exist, already resolved, or expired"
+        )
+
+    return {
+        "status": "approved",
+        "request_id": request_id,
+        "approved_by": decision.decided_by,
+        "message": "Request approved. Call /api/approvals/{request_id}/resume to complete workflow.",
+    }
+
+
+@app.post("/api/approvals/{request_id}/deny")
+async def deny_request(request_id: str, decision: ApprovalDecisionRequest):
+    """
+    Deny a pending approval request.
+
+    The offer will not be delivered. Workflow state is cleaned up.
+
+    Body:
+        decided_by: User ID or email of denier
+        notes: Optional denial reason
+    """
+    hitl = get_hitl_manager()
+    request = hitl.deny(
+        request_id=request_id,
+        decided_by=decision.decided_by,
+        notes=decision.notes,
+    )
+
+    if not request:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not deny request - may not exist, already resolved, or expired"
+        )
+
+    # Handle denial and get final result
+    result = handle_denial(request_id)
+
+    return {
+        "status": "denied",
+        "request_id": request_id,
+        "denied_by": decision.decided_by,
+        "pnr": request.pnr,
+        "result": result,
+    }
+
+
+@app.post("/api/approvals/{request_id}/resume")
+async def resume_approved_workflow(request_id: str):
+    """
+    Resume a workflow after approval.
+
+    This loads the saved workflow state and completes the offer delivery.
+    Only works for approved requests.
+
+    Returns the final workflow result with offer delivered.
+    """
+    result = resume_after_approval(request_id)
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+@app.get("/api/approvals/stats")
+async def get_approval_stats():
+    """
+    Get statistics about approval requests.
+
+    Returns counts by status and by reason.
+    """
+    hitl = get_hitl_manager()
+    stats = hitl.get_stats()
+    return stats
+
+
+@app.get("/api/approvals/pnr/{pnr}")
+async def get_approvals_by_pnr(pnr: str):
+    """
+    Get all approval requests for a specific PNR.
+
+    Returns historical approval requests including resolved ones.
+    """
+    hitl = get_hitl_manager()
+    requests = hitl.get_requests_by_pnr(pnr)
+
+    return {
+        "pnr": pnr,
+        "total": len(requests),
+        "approvals": [req.to_dict() for req in requests],
+    }
 
 
 if __name__ == "__main__":

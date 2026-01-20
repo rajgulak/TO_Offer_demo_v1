@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { AgentResult, AgentStatus, ComponentType } from '../types';
 
+type ExecutionMode = 'choreography' | 'planner-worker';
+
 interface AgentConfig {
   id: string;
   name: string;
@@ -15,6 +17,9 @@ interface Props {
   currentAgentId: string | null;
   selectedAgentTab: string | null;
   onSelectAgent: (agentId: string) => void;
+  executionMode?: ExecutionMode | null;
+  hitlEnabled?: boolean;
+  plannerState?: { isActive: boolean; plan?: string[]; reasoning?: string };
 }
 
 // State field mappings for each node
@@ -59,9 +64,14 @@ export function PipelineVisualization({
   currentAgentId,
   selectedAgentTab: _selectedAgentTab,
   onSelectAgent,
+  executionMode,
+  hitlEnabled = false,
+  plannerState,
 }: Props) {
   const [showStatePanel, setShowStatePanel] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+
+  const isPlannerWorker = executionMode === 'planner-worker';
 
   const getAgentStatus = (agentId: string): AgentStatus => {
     if (currentAgentId === agentId) return 'processing';
@@ -164,9 +174,26 @@ export function PipelineVisualization({
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
           <span>LangGraph Workflow</span>
-          <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-            Sequential + Conditional Routing
-          </span>
+          {/* Execution Mode Badge */}
+          {executionMode && (
+            <span className={`text-xs font-normal px-2 py-0.5 rounded ${
+              isPlannerWorker
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-100 text-emerald-700'
+            }`}>
+              {isPlannerWorker ? '🧠 Planner-Worker' : '⚡ Choreography'}
+            </span>
+          )}
+          {!executionMode && (
+            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+              Sequential + Conditional Routing
+            </span>
+          )}
+          {hitlEnabled && (
+            <span className="text-xs font-normal bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+              👤 HITL
+            </span>
+          )}
           {currentAgentId && (
             <span className="text-sm font-normal text-blue-600 animate-pulse">
               Processing...
@@ -187,6 +214,26 @@ export function PipelineVisualization({
         </div>
       </div>
 
+      {/* Planner State Banner (for planner-worker mode) */}
+      {isPlannerWorker && plannerState?.isActive && (
+        <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3">
+          <span className="text-2xl animate-spin">🎯</span>
+          <div>
+            <div className="font-medium text-amber-800">Planner Analyzing...</div>
+            <div className="text-sm text-amber-600">Determining optimal execution sequence based on current state</div>
+          </div>
+        </div>
+      )}
+      {isPlannerWorker && plannerState?.reasoning && !plannerState?.isActive && (
+        <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <span>🎯</span>
+            <span className="font-medium text-blue-800">Planner Decision</span>
+          </div>
+          <div className="text-sm text-blue-700">{plannerState.reasoning}</div>
+        </div>
+      )}
+
       {/* LangGraph Code Reference */}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 font-mono text-xs">
         <div className="flex justify-between items-center">
@@ -197,14 +244,247 @@ export function PipelineVisualization({
             </span>
           </div>
           <div className="text-slate-400 text-[10px]">
-            Pattern: Sequential Pipeline with Short-Circuit
+            Pattern: {isPlannerWorker ? 'Planner-Worker (Dynamic Routing)' : 'Sequential Pipeline with Short-Circuit'}
           </div>
         </div>
       </div>
 
-      {/* Graph Visualization */}
+      {/* Graph Visualization - Conditional based on execution mode */}
       <div className="relative bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-4 overflow-x-auto border border-slate-200">
-        <svg className="w-full" height="340" viewBox="0 0 920 340">
+        {isPlannerWorker ? (
+          /* Planner-Worker Visualization - Hub and Spoke */
+          <svg className="w-full" height="340" viewBox="0 0 920 340">
+            {/* Background Grid */}
+            <defs>
+              <pattern id="grid-pw" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.5" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid-pw)" />
+
+            {/* Entry: START → load_data */}
+            <g transform="translate(40, 170)">
+              <circle r="14" fill="#10b981" stroke="#059669" strokeWidth="2">
+                <animate attributeName="r" values="14;16;14" dur="2s" repeatCount="indefinite" />
+              </circle>
+              <text x="0" y="5" textAnchor="middle" fontSize="11" fill="white" fontWeight="bold">▶</text>
+              <text x="0" y="35" textAnchor="middle" fontSize="9" fill="#6b7280">START</text>
+            </g>
+
+            {/* Arrow to load_data */}
+            <line x1="54" y1="170" x2="90" y2="170" stroke="#10b981" strokeWidth="2" markerEnd="url(#arrow-pw)" />
+
+            {/* load_data node */}
+            <g transform="translate(90, 140)">
+              <rect width="80" height="60" rx="8" fill="#f8fafc" stroke="#64748b" strokeWidth="2" />
+              <text x="40" y="25" textAnchor="middle" fontSize="16">📥</text>
+              <text x="40" y="42" textAnchor="middle" fontSize="8" fill="#475569" fontWeight="600">load_data</text>
+            </g>
+
+            {/* Arrow to Planner */}
+            <line x1="170" y1="170" x2="250" y2="170" stroke="#f59e0b" strokeWidth="2" markerEnd="url(#arrow-amber)" />
+
+            {/* PLANNER HUB - Central node */}
+            <g transform="translate(340, 170)">
+              {/* Glow effect */}
+              <circle r="75" fill="none" stroke="#f59e0b" strokeWidth="2" opacity="0.3">
+                <animate attributeName="r" values="75;80;75" dur="2s" repeatCount="indefinite" />
+              </circle>
+              <circle
+                r="70"
+                fill={plannerState?.isActive ? '#fef3c7' : '#fffbeb'}
+                stroke="#f59e0b"
+                strokeWidth="3"
+                className={plannerState?.isActive ? 'animate-pulse' : ''}
+              />
+              <text x="0" y="-20" textAnchor="middle" fontSize="28">🎯</text>
+              <text x="0" y="5" textAnchor="middle" fontSize="12" fill="#92400e" fontWeight="bold">PLANNER</text>
+              <text x="0" y="20" textAnchor="middle" fontSize="8" fill="#b45309">(LLM)</text>
+              <text x="0" y="35" textAnchor="middle" fontSize="7" fill="#d97706">decides next step</text>
+            </g>
+
+            {/* Workers arranged around planner */}
+            {/* Customer Intelligence - Top Left */}
+            <g
+              transform="translate(500, 40)"
+              onClick={() => onSelectAgent('customer_intelligence')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="100"
+                height="65"
+                rx="10"
+                fill={getAgentStatus('customer_intelligence') === 'complete' ? '#ecfdf5' :
+                      getAgentStatus('customer_intelligence') === 'processing' ? '#dbeafe' : '#f8fafc'}
+                stroke={getAgentStatus('customer_intelligence') === 'complete' ? '#10b981' :
+                        getAgentStatus('customer_intelligence') === 'processing' ? '#3b82f6' : '#cbd5e1'}
+                strokeWidth={getAgentStatus('customer_intelligence') === 'processing' ? 3 : 2}
+                className={getAgentStatus('customer_intelligence') === 'processing' ? 'animate-pulse' : ''}
+              />
+              <text x="50" y="25" textAnchor="middle" fontSize="18">🧠</text>
+              <text x="50" y="42" textAnchor="middle" fontSize="7" fill="#475569" fontWeight="600">customer_intel</text>
+              {getAgentStatus('customer_intelligence') === 'complete' && (
+                <circle cx="85" cy="12" r="10" fill="#10b981"><text x="85" y="16" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            {/* Bidirectional arrow */}
+            <line x1="410" y1="140" x2="500" y2="80" stroke={getAgentStatus('customer_intelligence') !== 'pending' ? '#10b981' : '#cbd5e1'} strokeWidth="2" />
+            <line x1="500" y1="80" x2="410" y2="140" stroke={getAgentStatus('customer_intelligence') !== 'pending' ? '#10b981' : '#cbd5e1'} strokeWidth="2" strokeDasharray="4" />
+
+            {/* Flight Optimization - Top Right */}
+            <g
+              transform="translate(650, 40)"
+              onClick={() => onSelectAgent('flight_optimization')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="100"
+                height="65"
+                rx="10"
+                fill={getAgentStatus('flight_optimization') === 'complete' ? '#ecfdf5' :
+                      getAgentStatus('flight_optimization') === 'processing' ? '#dbeafe' : '#f8fafc'}
+                stroke={getAgentStatus('flight_optimization') === 'complete' ? '#10b981' :
+                        getAgentStatus('flight_optimization') === 'processing' ? '#3b82f6' : '#cbd5e1'}
+                strokeWidth={getAgentStatus('flight_optimization') === 'processing' ? 3 : 2}
+              />
+              <text x="50" y="25" textAnchor="middle" fontSize="18">📊</text>
+              <text x="50" y="42" textAnchor="middle" fontSize="7" fill="#475569" fontWeight="600">flight_opt</text>
+              {getAgentStatus('flight_optimization') === 'complete' && (
+                <circle cx="85" cy="12" r="10" fill="#10b981"><text x="85" y="16" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            <line x1="410" y1="150" x2="650" y2="80" stroke={getAgentStatus('flight_optimization') !== 'pending' ? '#10b981' : '#cbd5e1'} strokeWidth="2" />
+
+            {/* Offer Orchestration - Right (THE AGENT with ReWOO) */}
+            <g
+              transform="translate(650, 140)"
+              onClick={() => onSelectAgent('offer_orchestration')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="110"
+                height="70"
+                rx="10"
+                fill={getAgentStatus('offer_orchestration') === 'complete' ? '#eff6ff' :
+                      getAgentStatus('offer_orchestration') === 'processing' ? '#dbeafe' : '#f0f9ff'}
+                stroke="#3b82f6"
+                strokeWidth="3"
+              />
+              <text x="55" y="25" textAnchor="middle" fontSize="20">⚖️</text>
+              <text x="55" y="42" textAnchor="middle" fontSize="7" fill="#1e40af" fontWeight="700">offer_orchestration</text>
+              <rect x="5" y="52" width="50" height="12" rx="3" fill="#2563eb" />
+              <text x="30" y="61" textAnchor="middle" fontSize="5" fill="white">🧠 ReWOO</text>
+              {getAgentStatus('offer_orchestration') === 'complete' && (
+                <circle cx="95" cy="12" r="10" fill="#3b82f6"><text x="95" y="16" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            <line x1="410" y1="170" x2="650" y2="175" stroke={getAgentStatus('offer_orchestration') !== 'pending' ? '#3b82f6' : '#cbd5e1'} strokeWidth="2" />
+
+            {/* Personalization - Bottom Right */}
+            <g
+              transform="translate(650, 235)"
+              onClick={() => onSelectAgent('personalization')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="100"
+                height="65"
+                rx="10"
+                fill={getAgentStatus('personalization') === 'complete' ? '#faf5ff' :
+                      getAgentStatus('personalization') === 'processing' ? '#f3e8ff' : '#fdf4ff'}
+                stroke={getAgentStatus('personalization') === 'complete' ? '#a855f7' : '#d8b4fe'}
+                strokeWidth="2"
+              />
+              <text x="50" y="25" textAnchor="middle" fontSize="18">✨</text>
+              <text x="50" y="42" textAnchor="middle" fontSize="7" fill="#7c3aed" fontWeight="600">personalization</text>
+              <rect x="5" y="48" width="35" height="12" rx="3" fill="#9333ea" />
+              <text x="22" y="57" textAnchor="middle" fontSize="6" fill="white">LLM</text>
+              {getAgentStatus('personalization') === 'complete' && (
+                <circle cx="85" cy="12" r="10" fill="#a855f7"><text x="85" y="16" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            <line x1="410" y1="190" x2="650" y2="260" stroke={getAgentStatus('personalization') !== 'pending' ? '#a855f7' : '#cbd5e1'} strokeWidth="2" />
+
+            {/* Channel Timing - Bottom */}
+            <g
+              transform="translate(500, 275)"
+              onClick={() => onSelectAgent('channel_timing')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="100"
+                height="55"
+                rx="10"
+                fill={getAgentStatus('channel_timing') === 'complete' ? '#ecfdf5' : '#f8fafc'}
+                stroke={getAgentStatus('channel_timing') === 'complete' ? '#10b981' : '#cbd5e1'}
+                strokeWidth="2"
+              />
+              <text x="50" y="22" textAnchor="middle" fontSize="16">📱</text>
+              <text x="50" y="38" textAnchor="middle" fontSize="7" fill="#475569" fontWeight="600">channel_timing</text>
+              {getAgentStatus('channel_timing') === 'complete' && (
+                <circle cx="85" cy="10" r="10" fill="#10b981"><text x="85" y="14" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            <line x1="390" y1="220" x2="500" y2="290" stroke={getAgentStatus('channel_timing') !== 'pending' ? '#10b981' : '#cbd5e1'} strokeWidth="2" />
+
+            {/* Measurement - Bottom Left */}
+            <g
+              transform="translate(280, 275)"
+              onClick={() => onSelectAgent('measurement')}
+              style={{ cursor: 'pointer' }}
+            >
+              <rect
+                width="100"
+                height="55"
+                rx="10"
+                fill={getAgentStatus('measurement') === 'complete' ? '#fefce8' : '#fefce8'}
+                stroke={getAgentStatus('measurement') === 'complete' ? '#ca8a04' : '#d4d4d8'}
+                strokeWidth="2"
+                strokeDasharray="4 2"
+              />
+              <text x="50" y="22" textAnchor="middle" fontSize="16">🏷️</text>
+              <text x="50" y="38" textAnchor="middle" fontSize="7" fill="#854d0e" fontWeight="600">measurement</text>
+              {getAgentStatus('measurement') === 'complete' && (
+                <circle cx="85" cy="10" r="10" fill="#ca8a04"><text x="85" y="14" textAnchor="middle" fontSize="10" fill="white">✓</text></circle>
+              )}
+            </g>
+            <line x1="310" y1="220" x2="330" y2="275" stroke={getAgentStatus('measurement') !== 'pending' ? '#ca8a04' : '#cbd5e1'} strokeWidth="2" />
+
+            {/* Exit: Planner → final_decision → END */}
+            <g transform="translate(780, 155)">
+              <rect width="80" height="50" rx="8" fill="#f0fdf4" stroke="#22c55e" strokeWidth="2" />
+              <text x="40" y="22" textAnchor="middle" fontSize="14">🎯</text>
+              <text x="40" y="38" textAnchor="middle" fontSize="7" fill="#166534" fontWeight="600">final_decision</text>
+            </g>
+            <line x1="410" y1="170" x2="780" y2="180" stroke="#22c55e" strokeWidth="2" strokeDasharray="6" />
+            <text x="600" y="165" fontSize="7" fill="#6b7280">when complete</text>
+
+            {/* END node */}
+            <g transform="translate(880, 165)">
+              <circle r="15" fill="#dc2626" stroke="#b91c1c" strokeWidth="2" />
+              <rect x="-7" y="-5" width="14" height="10" fill="white" rx="1" />
+              <text x="0" y="35" textAnchor="middle" fontSize="9" fill="#6b7280">END</text>
+            </g>
+            <line x1="860" y1="180" x2="865" y2="175" stroke="#22c55e" strokeWidth="2" />
+
+            {/* Arrow markers */}
+            <defs>
+              <marker id="arrow-pw" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#10b981" />
+              </marker>
+              <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b" />
+              </marker>
+            </defs>
+
+            {/* Label showing pattern */}
+            <text x="460" y="25" textAnchor="middle" fontSize="10" fill="#64748b" fontWeight="500">
+              Hub-and-Spoke: Planner decides → Worker executes → Returns to Planner
+            </text>
+          </svg>
+        ) : (
+          /* Choreography Visualization - Sequential flow (existing) */
+          <svg className="w-full" height="340" viewBox="0 0 920 340">
           {/* Background Grid */}
           <defs>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -444,10 +724,10 @@ export function PipelineVisualization({
                 <text x="90" y="19" textAnchor="middle" fontSize="8" fill="white">🧠</text>
               </g>
             )}
-            {/* Agent badge */}
-            <rect x="5" y="72" width="50" height="14" rx="3" fill="#2563eb" />
-            <text x="30" y="82" textAnchor="middle" fontSize="6" fill="white" fontWeight="bold">🧠 AGENT</text>
-            <text x="70" y="82" textAnchor="middle" fontSize="6" fill="#3b82f6">+LLM</text>
+            {/* Agent badge with ReWOO */}
+            <rect x="5" y="72" width="55" height="14" rx="3" fill="#2563eb" />
+            <text x="32" y="82" textAnchor="middle" fontSize="5" fill="white" fontWeight="bold">🧠 ReWOO</text>
+            <text x="75" y="82" textAnchor="middle" fontSize="5" fill="#3b82f6">P→W→S</text>
           </g>
           {renderNodeTooltip('offer_orchestration', 572, 100)}
 
@@ -666,37 +946,76 @@ export function PipelineVisualization({
             </marker>
           </defs>
         </svg>
+        )}
 
-        {/* Legend */}
+        {/* Legend - Mode-aware */}
         <div className="flex items-center justify-center gap-4 mt-4 text-xs text-gray-600 flex-wrap border-t border-slate-200 pt-4">
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded bg-slate-100 border-2 border-slate-500 flex items-center justify-center text-[8px]">⚡</div>
-            <span>Workflow (4)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded bg-blue-100 border-2 border-blue-500 flex items-center justify-center text-[8px]">🧠</div>
-            <span>Agent (1)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded bg-purple-100 border-2 border-purple-500 flex items-center justify-center text-[8px]">✨</div>
-            <span>LLM Call (1)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded bg-yellow-100 border-2 border-yellow-600 border-dashed flex items-center justify-center text-[8px]">🏷️</div>
-            <span>Post-Decision</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rotate-45 bg-amber-200 border border-amber-500"></div>
-            <span>Conditional</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 bg-green-500"></div>
-            <span>Active</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 bg-red-400 border-dashed border-t-2 border-red-400"></div>
-            <span>Exit</span>
-          </div>
+          {isPlannerWorker ? (
+            /* Planner-Worker Legend */
+            <>
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-amber-100 border-2 border-amber-500 flex items-center justify-center text-[10px]">🎯</div>
+                <span>Planner (LLM)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-slate-100 border-2 border-slate-500 flex items-center justify-center text-[8px]">⚡</div>
+                <span>Worker</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-blue-100 border-2 border-blue-500 flex items-center justify-center text-[8px]">🧠</div>
+                <span>Agent (ReWOO)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-purple-100 border-2 border-purple-500 flex items-center justify-center text-[8px]">✨</div>
+                <span>LLM Worker</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg width="24" height="16" viewBox="0 0 24 16">
+                  <line x1="2" y1="8" x2="22" y2="8" stroke="#f59e0b" strokeWidth="2" />
+                  <polygon points="18,4 22,8 18,12" fill="#f59e0b" />
+                </svg>
+                <span>Dispatch</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg width="24" height="16" viewBox="0 0 24 16">
+                  <line x1="2" y1="8" x2="22" y2="8" stroke="#10b981" strokeWidth="2" strokeDasharray="4" />
+                </svg>
+                <span>Return</span>
+              </div>
+            </>
+          ) : (
+            /* Choreography Legend */
+            <>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-slate-100 border-2 border-slate-500 flex items-center justify-center text-[8px]">⚡</div>
+                <span>Workflow (4)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-blue-100 border-2 border-blue-500 flex items-center justify-center text-[8px]">🧠</div>
+                <span>Agent ReWOO (1)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-purple-100 border-2 border-purple-500 flex items-center justify-center text-[8px]">✨</div>
+                <span>LLM Call (1)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-5 h-5 rounded bg-yellow-100 border-2 border-yellow-600 border-dashed flex items-center justify-center text-[8px]">🏷️</div>
+                <span>Post-Decision</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-4 h-4 rotate-45 bg-amber-200 border border-amber-500"></div>
+                <span>Conditional</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-0.5 bg-green-500"></div>
+                <span>Active</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-0.5 bg-red-400 border-dashed border-t-2 border-red-400"></div>
+                <span>Exit</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -841,61 +1160,123 @@ export function PipelineVisualization({
         </div>
       )}
 
-      {/* Edge Definitions Code */}
+      {/* Edge Definitions Code - Mode-aware */}
       <div className="mt-4 bg-slate-50 border border-slate-200 rounded-lg p-3 font-mono text-xs">
         <div className="flex justify-between items-center mb-2">
           <span className="text-slate-500"># Graph edges from workflow.py</span>
           <span className="text-[10px] text-slate-400">LangGraph StateGraph</span>
         </div>
-        <div className="grid md:grid-cols-2 gap-x-6 gap-y-1 text-slate-700">
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"load_data"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-emerald-600">"customer_intelligence"</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"flight_optimization"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-emerald-600">"offer_orchestration"</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"personalization"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-emerald-600">"channel_timing"</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"channel_timing"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-emerald-600">"measurement"</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"measurement"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-emerald-600">"final_decision"</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-emerald-600">"final_decision"</span>
-            <span className="text-slate-400">→</span>
-            <span className="text-amber-600">END</span>
-          </div>
-        </div>
-        <div className="mt-3 pt-2 border-t border-slate-300">
-          <div className="text-slate-500 mb-1"># Conditional edges (short-circuit)</div>
-          <div className="text-[11px] space-y-1">
-            <div>
-              <span className="text-purple-600">add_conditional_edges</span>
-              (<span className="text-emerald-600">"customer_intelligence"</span>,
-              <span className="text-blue-600 ml-1">should_continue_after_customer</span>)
-              <span className="text-slate-400 ml-2">→ "flight_optimization" | "final_decision"</span>
+
+        {isPlannerWorker ? (
+          /* Planner-Worker Edge Definitions */
+          <>
+            <div className="text-slate-700 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"load_data"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-amber-600 font-bold">"planner"</span>
+                <span className="text-slate-400 text-[10px]"># Entry point to planner</span>
+              </div>
             </div>
-            <div>
-              <span className="text-purple-600">add_conditional_edges</span>
-              (<span className="text-emerald-600">"offer_orchestration"</span>,
-              <span className="text-blue-600 ml-1">should_continue_after_offer</span>)
-              <span className="text-slate-400 ml-2">→ "personalization" | "final_decision"</span>
+            <div className="mt-3 pt-2 border-t border-slate-300">
+              <div className="text-slate-500 mb-1"># Dynamic routing via planner LLM</div>
+              <div className="text-[11px] space-y-1">
+                <div>
+                  <span className="text-purple-600">add_conditional_edges</span>
+                  (<span className="text-amber-600">"planner"</span>,
+                  <span className="text-blue-600 ml-1">planner_decision</span>)
+                </div>
+                <div className="ml-4 text-slate-500">
+                  # Planner routes to any worker based on LLM analysis:
+                </div>
+                <div className="ml-4 text-slate-600">
+                  → <span className="text-emerald-600">"customer_intelligence"</span> |
+                  <span className="text-emerald-600 ml-1">"flight_optimization"</span> |
+                  <span className="text-blue-600 ml-1">"offer_orchestration"</span> |
+                  <span className="text-purple-600 ml-1">"personalization"</span> |
+                  <span className="text-emerald-600 ml-1">"channel_timing"</span> |
+                  <span className="text-yellow-600 ml-1">"measurement"</span>
+                </div>
+                <div className="ml-4 text-slate-500">
+                  # Each worker returns to planner after completion
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+            <div className="mt-3 pt-2 border-t border-slate-300">
+              <div className="text-slate-500 mb-1"># Worker → Planner return edges</div>
+              <div className="grid md:grid-cols-2 gap-x-6 gap-y-1 text-slate-700 text-[11px]">
+                <div><span className="text-emerald-600">"customer_intel"</span> → <span className="text-amber-600">"planner"</span></div>
+                <div><span className="text-emerald-600">"flight_opt"</span> → <span className="text-amber-600">"planner"</span></div>
+                <div><span className="text-blue-600">"offer_orchestration"</span> → <span className="text-amber-600">"planner"</span></div>
+                <div><span className="text-purple-600">"personalization"</span> → <span className="text-amber-600">"planner"</span></div>
+                <div><span className="text-emerald-600">"channel_timing"</span> → <span className="text-amber-600">"planner"</span></div>
+                <div><span className="text-yellow-600">"measurement"</span> → <span className="text-amber-600">"planner"</span></div>
+              </div>
+            </div>
+            <div className="mt-3 pt-2 border-t border-slate-300">
+              <div className="text-slate-500 mb-1"># Exit condition</div>
+              <div className="text-[11px]">
+                <span className="text-purple-600">add_conditional_edges</span>
+                (<span className="text-amber-600">"planner"</span>,
+                <span className="text-blue-600 ml-1">is_complete</span>)
+                <span className="text-slate-400 ml-2">→ "final_decision" | continue</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Choreography Edge Definitions */
+          <>
+            <div className="grid md:grid-cols-2 gap-x-6 gap-y-1 text-slate-700">
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"load_data"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-emerald-600">"customer_intelligence"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"flight_optimization"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-emerald-600">"offer_orchestration"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"personalization"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-emerald-600">"channel_timing"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"channel_timing"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-emerald-600">"measurement"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"measurement"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-emerald-600">"final_decision"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-600">"final_decision"</span>
+                <span className="text-slate-400">→</span>
+                <span className="text-amber-600">END</span>
+              </div>
+            </div>
+            <div className="mt-3 pt-2 border-t border-slate-300">
+              <div className="text-slate-500 mb-1"># Conditional edges (short-circuit)</div>
+              <div className="text-[11px] space-y-1">
+                <div>
+                  <span className="text-purple-600">add_conditional_edges</span>
+                  (<span className="text-emerald-600">"customer_intelligence"</span>,
+                  <span className="text-blue-600 ml-1">should_continue_after_customer</span>)
+                  <span className="text-slate-400 ml-2">→ "flight_optimization" | "final_decision"</span>
+                </div>
+                <div>
+                  <span className="text-purple-600">add_conditional_edges</span>
+                  (<span className="text-emerald-600">"offer_orchestration"</span>,
+                  <span className="text-blue-600 ml-1">should_continue_after_offer</span>)
+                  <span className="text-slate-400 ml-2">→ "personalization" | "final_decision"</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
