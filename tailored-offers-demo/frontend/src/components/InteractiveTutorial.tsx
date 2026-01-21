@@ -15,7 +15,7 @@ export function InteractiveTutorial({ isOpen, onClose }: Props) {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('choreography');
   const [hitlEnabled, setHitlEnabled] = useState(false);
 
-  const totalSteps = audience === 'business' ? 6 : 8;
+  const totalSteps = audience === 'business' ? 6 : 9;
 
   useEffect(() => {
     if (isOpen) {
@@ -119,10 +119,11 @@ export function InteractiveTutorial({ isOpen, onClose }: Props) {
               {currentStep === 1 && <TechStep1 phase={animationPhase} />}
               {currentStep === 2 && <TechStep2 phase={animationPhase} executionMode={executionMode} setExecutionMode={setExecutionMode} hitlEnabled={hitlEnabled} setHitlEnabled={setHitlEnabled} />}
               {currentStep === 3 && <TechStep3 phase={animationPhase} />}
-              {currentStep === 4 && <TechStep4 phase={animationPhase} />}
-              {currentStep === 5 && <TechStep5 phase={animationPhase} />}
-              {currentStep === 6 && <TechStep6 phase={animationPhase} />}
-              {currentStep === 7 && <TechStep7 phase={animationPhase} />}
+              {currentStep === 4 && <TechStepDataDecisions phase={animationPhase} />}
+              {currentStep === 5 && <TechStep4 phase={animationPhase} />}
+              {currentStep === 6 && <TechStep5 phase={animationPhase} />}
+              {currentStep === 7 && <TechStep6 phase={animationPhase} />}
+              {currentStep === 8 && <TechStep7 phase={animationPhase} />}
             </>
           )}
         </div>
@@ -1198,6 +1199,113 @@ function TechStep3({ phase }: { phase: number }) {
             <strong className="text-emerald-400">Config:</strong> tools/mcp_config.json
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TechStepDataDecisions({ phase }: { phase: number }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-6 overflow-y-auto">
+      <h2 className={`text-xl font-bold text-white mb-1 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Demo Data: Mapped from Real Systems
+      </h2>
+      <p className={`text-slate-400 text-sm mb-4 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Data fields sourced from <span className="text-emerald-400">Tailored Offers Data Mapping</span> master document
+      </p>
+
+      <div className={`flex gap-4 transition-all duration-500 ${phase >= 2 ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Customer Data Column */}
+        <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-3 w-72">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">👤</span>
+            <span className="text-blue-300 font-bold text-sm">Customer Data</span>
+            <span className="text-[9px] bg-blue-800/50 text-blue-300 px-1.5 py-0.5 rounded">AADV Database</span>
+          </div>
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-700">
+                <th className="text-left py-1">Demo Field</th>
+                <th className="text-left py-1">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { field: 'lylty_acct_id', source: 'LYLTY_ACCT_ID', priority: '1' },
+                { field: 'loyalty_tier', source: 'LYLTY_TIER_CD', priority: '1' },
+                { field: 'aadv_tenure_days', source: 'PGM_ENROLL_DT (derived)', priority: '1.5' },
+                { field: 'home_airport_cd', source: 'HOME_AIRPRT_IATA_CD', priority: '1' },
+                { field: 'flight_revenue_amt', source: 'FLIT_REV_AMT_12M', priority: '1' },
+                { field: 'cobrand_cardholder', source: 'COBRD_CRDHLD_IND', priority: '1.5' },
+              ].map((row, i) => (
+                <tr key={i} className="border-b border-slate-800/50">
+                  <td className="py-1 text-emerald-400 font-mono">{row.field}</td>
+                  <td className="py-1 text-slate-400">{row.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* PNR/Trip Data Column */}
+        <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 w-72">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">✈️</span>
+            <span className="text-amber-300 font-bold text-sm">PNR / Trip Data</span>
+            <span className="text-[9px] bg-amber-800/50 text-amber-300 px-1.5 py-0.5 rounded">DCSID + PSR</span>
+          </div>
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-700">
+                <th className="text-left py-1">Demo Field</th>
+                <th className="text-left py-1">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { field: 'pnr_loctr_id', source: 'PNR_LOCTR_ID', priority: '1' },
+                { field: 'origin_airport', source: 'POINT_OF_ORIGIN_IATA_CD', priority: '1' },
+                { field: 'dest_airport', source: 'ACTL_LEG_ARVL_IATA_CD', priority: '1' },
+                { field: 'intl_trp_ind', source: 'INTL_TRP_IND', priority: '1' },
+                { field: 'max_bkd_cabin_cd', source: 'MAX_BKD_CABIN_CD', priority: '1' },
+                { field: 'fare_class', source: 'FARE_CLS_CD', priority: '1' },
+              ].map((row, i) => (
+                <tr key={i} className="border-b border-slate-800/50">
+                  <td className="py-1 text-emerald-400 font-mono">{row.field}</td>
+                  <td className="py-1 text-slate-400">{row.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Why These Scenarios */}
+      <div className={`mt-4 bg-slate-800/50 rounded-xl p-3 max-w-xl transition-all duration-500 ${phase >= 3 ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="text-sm text-white mb-2">Why These Demo Scenarios?</div>
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          {[
+            { scenario: 'ABC123 (Sarah)', why: 'Easy choice - tests baseline EV calculation', icon: '✅' },
+            { scenario: 'XYZ789 (John)', why: 'Confidence trade-off - unreliable ML prediction', icon: '🎯' },
+            { scenario: 'LMN456 (Emily)', why: 'Relationship trade-off - recent service issue', icon: '💔' },
+            { scenario: 'DEF321 (Michael)', why: 'Guardrail test - 0 seats available', icon: '🚫' },
+            { scenario: 'GHI654 (Lisa)', why: 'Guardrail test - customer suppressed', icon: '⛔' },
+            { scenario: 'JKL789 (David)', why: 'Price trade-off - high price sensitivity', icon: '💰' },
+          ].map((s, i) => (
+            <div key={i} className="bg-slate-700/30 rounded p-2">
+              <div className="flex items-center gap-1">
+                <span>{s.icon}</span>
+                <span className="text-emerald-400 font-mono">{s.scenario}</span>
+              </div>
+              <div className="text-slate-400 mt-1">{s.why}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Reference */}
+      <div className={`mt-3 text-[10px] text-slate-500 transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="text-emerald-400">Reference:</span> Tailored Offers Data Mapping - All Groups - Master.xlsx | Priority 1 & 1.5 fields
       </div>
     </div>
   );
