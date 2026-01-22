@@ -682,7 +682,10 @@ export default function BusinessAgentDemo() {
         const mceConfPct = scenario.ml.mceConf * 100;
         recommendation = `Business: ${businessConfPct.toFixed(0)}% confident, MCE: ${mceConfPct.toFixed(0)}% confident\n→ ${businessConfPct < variables.minConfidence ? 'Consider switching to safer MCE offer' : 'Business confidence is acceptable'}`;
       } else if (evalSteps[i].type === 'RELATIONSHIP') {
-        recommendation = `Found: ${scenario.customer.recentIssue?.type}\n→ Recommend ${variables.goodwillDiscountPercent}% goodwill discount (pre-approved by management)`;
+        const issueDisplay = scenario.customer.recentIssue?.type === 'seat_assignment_change'
+          ? 'seat change issue'
+          : scenario.customer.recentIssue?.type?.replace(/_/g, ' ') || 'service issue';
+        recommendation = `Found: ${issueDisplay} on ${scenario.customer.recentIssue?.date}\n→ Recommend ${variables.goodwillDiscountPercent}% goodwill discount (pre-approved by management)`;
       } else if (evalSteps[i].type === 'PRICE_SENSITIVITY') {
         const acceptRatePct = scenario.customer.acceptanceRate * 100;
         recommendation = `Acceptance rate: ${acceptRatePct.toFixed(0)}%\n→ ${acceptRatePct < 30 ? `Recommend discount up to ${variables.maxDiscount}%` : 'Customer likely to accept standard pricing'}`;
@@ -842,16 +845,45 @@ export default function BusinessAgentDemo() {
 
     await sleep(1200);
 
+    // Helper function to convert technical issue codes to friendly language
+    const formatIssueType = (issueType: string): string => {
+      const issueMap: Record<string, string> = {
+        'seat_assignment_change': 'a recent seat change on your last flight',
+        'baggage_delay': 'a baggage delay',
+        'flight_delay': 'a flight delay',
+        'cancellation': 'a flight cancellation',
+        'gate_change': 'a last-minute gate change',
+        'downgrade': 'an unexpected downgrade',
+        'missed_connection': 'a missed connection'
+      };
+      return issueMap[issueType] || 'an issue with your recent travel';
+    };
+
     // Generate personalized message based on context
     let personalizedMessage = '';
     if (hasRecentIssue && isVIP) {
-      personalizedMessage = `Hi ${scenario.customer.name.split(' ')[0]}, we noticed you experienced a ${scenario.customer.recentIssue?.type} recently. As a valued ${scenario.customer.tierDisplay} member, we'd like to offer you a complimentary upgrade to ${selectedOffer} for just $${selectedPrice.toFixed(0)} (${discount}% off) on your upcoming flight. We appreciate your loyalty!`;
+      const friendlyIssue = formatIssueType(scenario.customer.recentIssue?.type || '');
+      const firstName = scenario.customer.name.split(' ')[0];
+      personalizedMessage = `${firstName}, we sincerely apologize for ${friendlyIssue}. As a valued ${scenario.customer.tierDisplay} member, we'd like to make it right. We're offering you an exclusive upgrade to ${selectedOffer} Class for only $${selectedPrice.toFixed(0)}${discount > 0 ? ` (${discount}% off as a goodwill gesture)` : ''} on your upcoming ${scenario.flight.route} flight. Thank you for your continued loyalty.`;
+    } else if (hasRecentIssue) {
+      // Had an issue but not VIP
+      const friendlyIssue = formatIssueType(scenario.customer.recentIssue?.type || '');
+      const firstName = scenario.customer.name.split(' ')[0];
+      personalizedMessage = `${firstName}, we apologize for ${friendlyIssue}. To make it right, we're offering you an upgrade to ${selectedOffer} Class for $${selectedPrice.toFixed(0)}${discount > 0 ? ` (${discount}% off)` : ''} on your ${scenario.flight.route} flight. We appreciate your patience and understanding.`;
+    } else if (selectedOffer === 'Business' && isVIP) {
+      // VIP but no recent issue
+      const firstName = scenario.customer.name.split(' ')[0];
+      personalizedMessage = `${firstName}, as a ${scenario.customer.tierDisplay} member, we're pleased to offer you Business Class on your ${scenario.flight.route} flight for $${selectedPrice.toFixed(0)}. Enjoy lie-flat seats, premium dining, and our exclusive lounge access. Book now to secure your upgrade.`;
     } else if (selectedOffer === 'Business') {
-      personalizedMessage = `${scenario.customer.name.split(' ')[0]}, experience the luxury of Business Class on your ${scenario.flight.route} flight for just $${selectedPrice.toFixed(0)}. Enjoy priority boarding, premium dining, and lie-flat seats!`;
+      // Regular Business offer
+      const firstName = scenario.customer.name.split(' ')[0];
+      personalizedMessage = `${firstName}, elevate your ${scenario.flight.route} flight with Business Class for $${selectedPrice.toFixed(0)}. Experience priority boarding, premium meals, and extra space to work or relax.`;
     } else if (selectedOffer === 'MCE') {
-      personalizedMessage = `Hi ${scenario.customer.name.split(' ')[0]}! Stretch out with Main Cabin Extra on ${scenario.flight.flightNumber}. Get more legroom and priority boarding for only $${selectedPrice.toFixed(0)}.`;
+      // MCE offer
+      const firstName = scenario.customer.name.split(' ')[0];
+      personalizedMessage = `${firstName}, add more comfort to your ${scenario.flight.flightNumber} flight with Main Cabin Extra. Get up to 6 inches of extra legroom and priority boarding for just $${selectedPrice.toFixed(0)}.`;
     } else {
-      personalizedMessage = `${scenario.customer.name.split(' ')[0]}, upgrade your travel experience on flight ${scenario.flight.flightNumber} for just $${selectedPrice.toFixed(0)}!`;
+      personalizedMessage = `${scenario.customer.name.split(' ')[0]}, enhance your travel experience on flight ${scenario.flight.flightNumber} for just $${selectedPrice.toFixed(0)}!`;
     }
 
     solverThoughts.push(`✓ LLM generated personalized message:`);
