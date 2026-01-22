@@ -477,7 +477,6 @@ export default function BusinessAgentDemo() {
 
     // Build planner thought based on data
     const thoughts: string[] = [];
-    const evalSteps: EvaluationResult[] = [];
 
     // Show which prompt is being used
     const hasCustomPrompts = editedPlannerPrompt || editedWorkerPrompt || editedSolverPrompt;
@@ -494,144 +493,75 @@ export default function BusinessAgentDemo() {
     await sleep(400);
     setPlannerThought(thoughts.join('\n'));
 
-    // First: Check SUPPRESSION RULES (from PDF)
-    thoughts.push(`🛡️ First, let me check if I should even send an offer...`);
-    await sleep(600);
-    setPlannerThought(thoughts.join('\n'));
-
-    // Check if customer is distressed
-    const isDistressed = scenario.customer.isDistressed && variables.suppressDistressed;
-    if (isDistressed) {
-      thoughts.push(`❌ NO OFFER: This customer is having travel problems right now`);
-      setPlannerThought(thoughts.join('\n'));
-      await sleep(800);
-      setFinalDecision({
-        offerType: 'SUPPRESSED',
-        offerName: 'No Offer (Customer Having Problems)',
-        price: 0,
-        discount: 0,
-        expectedValue: 0,
-        confidence: 'N/A',
-        channel: 'N/A',
-        reasoning: "Not a good time to send marketing - they're dealing with travel disruption",
-      });
-      setAgentPhase({ phase: 'complete' });
-      setShowingDecision(true);
-      return;
-    }
-    thoughts.push(`✓ They're not having any problems`);
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
-
-    // Check recently contacted
-    const recentlyContacted = scenario.customer.lastContactedDays < variables.minDaysSinceContact;
-    if (recentlyContacted) {
-      thoughts.push(`❌ NO OFFER: We just contacted them ${scenario.customer.lastContactedDays} days ago (need to wait ${variables.minDaysSinceContact} days)`);
-      setPlannerThought(thoughts.join('\n'));
-      await sleep(800);
-      setFinalDecision({
-        offerType: 'SUPPRESSED',
-        offerName: 'No Offer (Too Soon)',
-        price: 0,
-        discount: 0,
-        expectedValue: 0,
-        confidence: 'N/A',
-        channel: 'N/A',
-        reasoning: `We contacted them ${scenario.customer.lastContactedDays} days ago - need to wait ${variables.minDaysSinceContact - scenario.customer.lastContactedDays} more days so they don't get annoyed`,
-      });
-      setAgentPhase({ phase: 'complete' });
-      setShowingDecision(true);
-      return;
-    }
-    thoughts.push(`✓ Last contact was ${scenario.customer.lastContactedDays} days ago (that's fine)`);
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
-
-    // Check sendout timing
-    const withinSendoutWindow = scenario.flight.hoursToDepart <= variables.sendoutTiming;
-    if (!withinSendoutWindow) {
-      thoughts.push(`⏳ Note: Flight is in ${scenario.flight.hoursToDepart} hours (I send at ${variables.sendoutTiming} hours before)`);
-      thoughts.push(`   → I'll save this for later`);
-    } else {
-      thoughts.push(`✓ Flight is in ${scenario.flight.hoursToDepart} hours - that's the right time to send`);
-    }
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
-
-    // Check flight LDF (proactive treatment eligibility)
-    const needsProactive = scenario.flight.estimatedLDF < variables.minLDFForProactive;
-    if (!needsProactive && !scenario.flight.needsProactiveTreatment) {
-      thoughts.push(`📊 This flight is ${scenario.flight.estimatedLDF}% full (it's filling up well)`);
-      thoughts.push(`   → Lower priority - the flight doesn't need much help`);
-    } else {
-      thoughts.push(`✓ This flight is ${scenario.flight.estimatedLDF}% full - we need to fill more seats!`);
-    }
-    await sleep(600);
-    setPlannerThought(thoughts.join('\n'));
-
-    thoughts.push(`\n✅ All checks passed - okay to send an offer!`);
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
-
-    // Show data fetching via MCP
-    thoughts.push(`\n🔍 Now I need to get ${scenario.customer.name}'s detailed information...`);
+    // Planner just looks at data and makes a plan
+    thoughts.push(`📋 Let me make a plan of what the Worker needs to check...\n`);
     await sleep(500);
     setPlannerThought(thoughts.join('\n'));
 
-    thoughts.push(`📞 Calling tool: get_customer_service_history via MCP`);
+    thoughts.push(`I can see this customer data:`);
+    thoughts.push(`• Customer: ${scenario.customer.name} (${scenario.customer.tierDisplay})`);
+    thoughts.push(`• Is distressed: ${scenario.customer.isDistressed ? 'Yes' : 'No'}`);
+    thoughts.push(`• Last contacted: ${scenario.customer.lastContactedDays} days ago`);
+    thoughts.push(`• Flight departs: ${scenario.flight.hoursToDepart} hours`);
+    thoughts.push(`• Flight load: ${scenario.flight.estimatedLDF}%`);
+    thoughts.push(`• ML confidence: ${(scenario.ml.businessConf * 100).toFixed(0)}%`);
+    thoughts.push(`• Annual revenue: $${scenario.customer.annualRevenue.toLocaleString()}`);
+    await sleep(700);
+    setPlannerThought(thoughts.join('\n'));
+
+    thoughts.push(`\nBased on this, here's my plan for the Worker:\n`);
+    await sleep(500);
+    setPlannerThought(thoughts.join('\n'));
+
+    // Build the plan (list of things to check)
+    thoughts.push(`🛡️ STEP 1: Suppression Checks (Worker should check these first)`);
+    thoughts.push(`   • Is customer distressed?`);
+    thoughts.push(`   • Did we contact them too recently?`);
+    thoughts.push(`   • Is it too late to send?`);
     await sleep(600);
     setPlannerThought(thoughts.join('\n'));
 
-    // Analyze what needs evaluation
+    // Analyze what needs evaluation (just looking at available data, not fetching)
     const hasLowConfidence = scenario.ml.businessConf < (variables.minConfidence / 100);
     const hasRecentIssue = !!scenario.customer.recentIssue;
     const isVIP = scenario.customer.annualRevenue >= variables.vipRevenueThreshold;
     const isPriceSensitive = scenario.customer.acceptanceRate < 0.3;
 
-    thoughts.push(`✓ Got the data back!`);
-    if (hasRecentIssue) {
-      thoughts.push(`   Found: Recent service issue - "${scenario.customer.recentIssue?.type}"`);
-    }
-    thoughts.push(`   Annual revenue: $${scenario.customer.annualRevenue.toLocaleString()}`);
-    thoughts.push(`   Acceptance rate: ${(scenario.customer.acceptanceRate * 100).toFixed(0)}%`);
-    await sleep(700);
-    setPlannerThought(thoughts.join('\n'));
+    const evalSteps: Array<{ type: string; status: 'pending' | 'running' | 'complete'; result: string; recommendation?: string }> = [];
 
+    // Add suppression check first
+    evalSteps.push({ type: 'SUPPRESSION', status: 'pending', result: 'Check suppression rules' });
+
+    // Add evaluation checks based on data
     if (hasLowConfidence) {
-      thoughts.push(`⚠️ The computer is only ${(scenario.ml.businessConf * 100).toFixed(0)}% sure about Business Class (minimum is ${variables.minConfidence}%)`);
-      evalSteps.push({ type: 'CONFIDENCE', status: 'pending', result: 'I need to check: Is the computer sure enough about this offer?' });
+      thoughts.push(`   • ML confidence is ${(scenario.ml.businessConf * 100).toFixed(0)}% - should check if we switch to safer offer`);
+      evalSteps.push({ type: 'CONFIDENCE', status: 'pending', result: 'Check ML confidence levels' });
     }
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
 
     if (hasRecentIssue) {
-      thoughts.push(`⚠️ Found a problem in their history: "${scenario.customer.recentIssue?.type}" on ${scenario.customer.recentIssue?.date}`);
-      thoughts.push(`   (This came from the service history tool)`);
-      evalSteps.push({ type: 'RELATIONSHIP', status: 'pending', result: 'I need to check: Should I give them something to make them feel better?' });
+      thoughts.push(`   • Customer had recent issue - should check for goodwill discount`);
+      evalSteps.push({ type: 'RELATIONSHIP', status: 'pending', result: 'Check if goodwill discount needed' });
     }
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
 
     if (isPriceSensitive) {
-      thoughts.push(`💰 This customer usually only accepts ${(scenario.customer.acceptanceRate * 100).toFixed(0)}% of offers - they might need a discount`);
-      evalSteps.push({ type: 'PRICE_SENSITIVITY', status: 'pending', result: 'I need to check: Will they only buy if I give them a discount?' });
+      thoughts.push(`   • Low acceptance rate (${(scenario.customer.acceptanceRate * 100).toFixed(0)}%) - should check pricing`);
+      evalSteps.push({ type: 'PRICE_SENSITIVITY', status: 'pending', result: 'Check pricing sensitivity' });
     }
-    await sleep(400);
-    setPlannerThought(thoughts.join('\n'));
 
     if (isVIP) {
-      thoughts.push(`⭐ This is a VIP customer - they spend $${scenario.customer.annualRevenue.toLocaleString()} per year!`);
-      evalSteps.push({ type: 'VIP_TREATMENT', status: 'pending', result: 'I need to check: Should I give them special treatment?' });
+      thoughts.push(`   • High revenue customer - should check for VIP treatment`);
+      evalSteps.push({ type: 'VIP_TREATMENT', status: 'pending', result: 'Check VIP eligibility' });
     }
-    await sleep(400);
+
+    if (evalSteps.length === 1) { // Only suppression check
+      thoughts.push(`   • No special factors - just pick best expected value`);
+      evalSteps.push({ type: 'EXPECTED_VALUE', status: 'pending', result: 'Calculate expected values' });
+    }
+
+    await sleep(600);
     setPlannerThought(thoughts.join('\n'));
 
-    if (evalSteps.length === 0) {
-      thoughts.push(`✅ This looks straightforward - nothing special to worry about`);
-      evalSteps.push({ type: 'EXPECTED_VALUE', status: 'pending', result: 'I just need to pick the offer that will make the most money' });
-    }
-
-    thoughts.push(`\n📋 My plan is ready! I have ${evalSteps.length} thing(s) to check`);
+    thoughts.push(`\n✅ My plan is ready! Sending ${evalSteps.length} check(s) to the Worker...`);
     setPlannerThought(thoughts.join('\n'));
     setEvaluations(evalSteps);
 
@@ -649,6 +579,81 @@ export default function BusinessAgentDemo() {
       ));
 
       await sleep(600);
+
+      // Handle SUPPRESSION check specially
+      if (evalSteps[i].type === 'SUPPRESSION') {
+        setEvaluations(prev => prev.map((e, idx) =>
+          idx === i ? { ...e, result: '🛡️ Checking suppression rules...' } : e
+        ));
+        await sleep(500);
+
+        const TOO_LATE_THRESHOLD = 6;
+        const isDistressed = scenario.customer.isDistressed && variables.suppressDistressed;
+        const recentlyContacted = scenario.customer.lastContactedDays < variables.minDaysSinceContact;
+        const tooLate = scenario.flight.hoursToDepart < TOO_LATE_THRESHOLD;
+
+        let suppressionResult = '';
+        let suppressionReason: { type: string; reasoning: string } | null = null;
+
+        if (isDistressed) {
+          suppressionResult = `✓ Checked distressed status → Customer IS distressed\n❌ SUPPRESSED`;
+          suppressionReason = { type: 'Customer Having Problems', reasoning: "Not a good time to send marketing - they're dealing with travel disruption" };
+        } else if (recentlyContacted) {
+          suppressionResult = `✓ Checked distressed status → Not distressed\n✓ Checked contact history → Contacted ${scenario.customer.lastContactedDays} days ago\n❌ SUPPRESSED (need ${variables.minDaysSinceContact} days)`;
+          suppressionReason = { type: 'Too Soon', reasoning: `We contacted them ${scenario.customer.lastContactedDays} days ago - need to wait ${variables.minDaysSinceContact - scenario.customer.lastContactedDays} more days so they don't get annoyed` };
+        } else if (tooLate) {
+          suppressionResult = `✓ Checked distressed status → Not distressed\n✓ Checked contact history → Last contact ${scenario.customer.lastContactedDays} days ago (OK)\n✓ Checked timing → Flight in ${scenario.flight.hoursToDepart} hours\n❌ SUPPRESSED (too late)`;
+          suppressionReason = { type: 'Too Late', reasoning: `Flight departs in ${scenario.flight.hoursToDepart} hours. Customer needs time to redeem the offer. Too late to send.` };
+        } else {
+          suppressionResult = `✓ Checked distressed status → Not distressed\n✓ Checked contact history → Last contact ${scenario.customer.lastContactedDays} days ago (OK)\n✓ Checked timing → Flight in ${scenario.flight.hoursToDepart} hours (OK)\n✅ PASSED - Okay to proceed`;
+        }
+
+        setEvaluations(prev => prev.map((e, idx) =>
+          idx === i ? { ...e, status: 'complete', result: suppressionResult } : e
+        ));
+
+        // If suppressed, skip remaining checks and go to solver
+        if (suppressionReason) {
+          await sleep(800);
+          setAgentPhase({ phase: 'solver' });
+
+          const solverThoughts: string[] = [];
+          solverThoughts.push(`The Worker completed the suppression checks.\n`);
+          await sleep(500);
+          setSolverThought(solverThoughts.join('\n'));
+
+          solverThoughts.push(`Result: Customer is suppressed`);
+          solverThoughts.push(`   Reason: ${suppressionReason.type}\n`);
+          await sleep(400);
+          setSolverThought(solverThoughts.join('\n'));
+
+          solverThoughts.push(`Based on company policy, my decision is:\n`);
+          await sleep(400);
+          setSolverThought(solverThoughts.join('\n'));
+
+          solverThoughts.push(`❌ NO OFFER`);
+          solverThoughts.push(`   ${suppressionReason.reasoning}`);
+          setSolverThought(solverThoughts.join('\n'));
+          await sleep(800);
+
+          setFinalDecision({
+            offerType: 'SUPPRESSED',
+            offerName: `No Offer (${suppressionReason.type})`,
+            price: 0,
+            discount: 0,
+            expectedValue: 0,
+            confidence: 'N/A',
+            channel: 'N/A',
+            reasoning: suppressionReason.reasoning,
+          });
+          setAgentPhase({ phase: 'complete' });
+          setShowingDecision(true);
+          return;
+        }
+
+        await sleep(500);
+        continue; // Skip the normal evaluation logic for suppression check
+      }
 
       // Show tool invocation for each evaluation type
       let toolCall = '';
@@ -673,15 +678,30 @@ export default function BusinessAgentDemo() {
       // Calculate result based on eval type
       let recommendation = '';
       if (evalSteps[i].type === 'CONFIDENCE') {
-        recommendation = `Maybe give them a cheaper, safer offer instead since the computer isn't very sure`;
+        const businessConfPct = scenario.ml.businessConf * 100;
+        const mceConfPct = scenario.ml.mceConf * 100;
+        recommendation = `Business: ${businessConfPct.toFixed(0)}% confident, MCE: ${mceConfPct.toFixed(0)}% confident\n→ ${businessConfPct < variables.minConfidence ? 'Consider switching to safer MCE offer' : 'Business confidence is acceptable'}`;
       } else if (evalSteps[i].type === 'RELATIONSHIP') {
-        recommendation = `Give them ${variables.goodwillDiscountPercent}% off to make them feel better about the problem (Already approved by management)`;
+        recommendation = `Found: ${scenario.customer.recentIssue?.type}\n→ Recommend ${variables.goodwillDiscountPercent}% goodwill discount (pre-approved by management)`;
       } else if (evalSteps[i].type === 'PRICE_SENSITIVITY') {
-        recommendation = `Give them ${variables.maxDiscount}% off so they're more likely to buy`;
+        const acceptRatePct = scenario.customer.acceptanceRate * 100;
+        recommendation = `Acceptance rate: ${acceptRatePct.toFixed(0)}%\n→ ${acceptRatePct < 30 ? `Recommend discount up to ${variables.maxDiscount}%` : 'Customer likely to accept standard pricing'}`;
       } else if (evalSteps[i].type === 'VIP_TREATMENT') {
-        recommendation = `Give them the best offer with extra care - they're important!`;
+        const revenue = scenario.customer.annualRevenue;
+        recommendation = `Annual revenue: $${revenue.toLocaleString()}\n→ ${revenue >= variables.vipRevenueThreshold ? 'Qualifies for VIP treatment - premium offer recommended' : 'Standard customer tier'}`;
+      } else if (evalSteps[i].type === 'EXPECTED_VALUE') {
+        // Calculate EVs and show them
+        const businessEV = scenario.ml.businessProb * scenario.pricing.businessBase;
+        const mceEV = scenario.ml.mceProb * scenario.pricing.mceBase;
+        const businessProb = (scenario.ml.businessProb * 100).toFixed(0);
+        const mceProb = (scenario.ml.mceProb * 100).toFixed(0);
+
+        recommendation = `Calculated Expected Values:\n` +
+          `• Business: ${businessProb}% × $${scenario.pricing.businessBase.toFixed(0)} = $${businessEV.toFixed(2)}\n` +
+          `• MCE: ${mceProb}% × $${scenario.pricing.mceBase.toFixed(0)} = $${mceEV.toFixed(2)}\n` +
+          `→ ${businessEV > mceEV ? 'Business has highest EV' : 'MCE has highest EV'}`;
       } else {
-        recommendation = `Just pick whichever offer will make the most money`;
+        recommendation = `Analysis complete`;
       }
 
       // Update eval to complete
