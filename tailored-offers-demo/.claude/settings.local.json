@@ -32,7 +32,8 @@
       "Bash(1 grep '\"\"agent_id\"\": \"\"offer_orchestration\"\".*\"\"status\"\": \"\"complete\"\"' /tmp/lmn456_policy_test2.txt)",
       "Bash(__NEW_LINE_ae98f426117581d0__ echo \"=== Testing LMN456 \\(Relationship - Policy POL-GW-001\\) ===\")",
       "Bash(# Kill everything and verify pkill -9 -f \"\"python\"\" pkill -9 -f \"\"uvicorn\"\" sleep 2 # Verify no Python processes ps aux)",
-      "Bash(md5:*)"
+      "Bash(md5:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

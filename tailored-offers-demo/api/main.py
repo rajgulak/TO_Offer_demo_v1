@@ -1126,6 +1126,177 @@ async def get_approvals_by_pnr(pnr: str):
     }
 
 
+# ============ Prompt Management Endpoints ============
+
+# Import prompt manager
+try:
+    from config.prompt_manager import PromptManager, list_prompts, get_prompt, update_prompt
+    PROMPT_MANAGER_AVAILABLE = True
+except ImportError:
+    PROMPT_MANAGER_AVAILABLE = False
+
+
+class PromptUpdateRequest(BaseModel):
+    content: str
+
+
+@app.get("/api/prompts")
+async def list_all_prompts():
+    """
+    List all available prompts with metadata.
+
+    Returns prompt names, versions, purposes, and available variables.
+    Use this to understand what prompts can be edited.
+    """
+    if not PROMPT_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Prompt manager not available")
+
+    prompts = list_prompts()
+
+    return {
+        "total": len(prompts),
+        "prompts": prompts,
+        "edit_guide": {
+            "location": "config/prompts/*.txt",
+            "hot_reload": True,
+            "api_edit": "PUT /api/prompts/{name}",
+        }
+    }
+
+
+@app.get("/api/prompts/{name}")
+async def get_prompt_details(name: str):
+    """
+    Get full details for a specific prompt.
+
+    Includes:
+    - Full prompt content
+    - Metadata (version, purpose, variables)
+    - Behavior notes (how changes affect agent)
+    """
+    if not PROMPT_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Prompt manager not available")
+
+    try:
+        content = get_prompt(name)
+        metadata = PromptManager.get_prompt_metadata(name)
+
+        return {
+            "name": name,
+            "content": content,
+            "metadata": metadata,
+            "editing_tips": [
+                "Variables use {variable_name} syntax",
+                "Changes take effect immediately (hot-reload)",
+                "Test with /api/prompts/{name}/test endpoint",
+                "Version auto-increments on save",
+            ]
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+
+
+@app.put("/api/prompts/{name}")
+async def update_prompt_content(name: str, request: PromptUpdateRequest):
+    """
+    Update a prompt with new content.
+
+    The version will auto-increment and last_modified will update.
+    Changes take effect immediately for all subsequent agent calls.
+
+    Example use case:
+    - Change tone in personalization prompt
+    - Add new evaluation type to planner prompt
+    - Adjust confidence thresholds in solver prompt
+    """
+    if not PROMPT_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Prompt manager not available")
+
+    try:
+        result = update_prompt(name, request.content)
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/prompts/{name}/test")
+async def test_prompt(name: str, variables: Dict[str, Any] = None):
+    """
+    Test a prompt with sample variables.
+
+    Pass variables in the request body to see how the prompt renders.
+
+    Example:
+        POST /api/prompts/personalization/test
+        Body: {"customer_name": "Sarah", "offer_price": 499}
+    """
+    if not PROMPT_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Prompt manager not available")
+
+    try:
+        variables = variables or {}
+        rendered = get_prompt(name, **variables)
+
+        # Find unsubstituted variables
+        import re
+        unsubstituted = re.findall(r'\{(\w+)\}', rendered)
+
+        return {
+            "name": name,
+            "variables_provided": list(variables.keys()),
+            "variables_unsubstituted": unsubstituted,
+            "rendered_prompt": rendered,
+            "character_count": len(rendered),
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+
+
+@app.get("/api/prompts/compare/{name}")
+async def compare_prompt_versions(name: str):
+    """
+    Compare current prompt with original version.
+
+    Useful for seeing what changes have been made.
+    Note: Requires git to be available.
+    """
+    if not PROMPT_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Prompt manager not available")
+
+    try:
+        import subprocess
+        prompt_path = f"config/prompts/{name}.txt"
+
+        # Get current content
+        current = get_prompt(name)
+
+        # Try to get original from git
+        try:
+            result = subprocess.run(
+                ["git", "show", f"HEAD:{prompt_path}"],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).parent.parent
+            )
+            if result.returncode == 0:
+                original = result.stdout
+            else:
+                original = None
+        except Exception:
+            original = None
+
+        return {
+            "name": name,
+            "current": current,
+            "original": original,
+            "has_changes": original is not None and current != original,
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

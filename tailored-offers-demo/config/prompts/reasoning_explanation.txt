@@ -1,0 +1,35 @@
+# REASONING EXPLANATION PROMPT
+# Version: 1.0
+# Last Modified: 2026-01-20
+# Purpose: Generates natural language explanations for agent decisions
+#
+# Variables available:
+#   - {agent_name}: Name of the agent explaining
+#   - {data_used}: Data sources and values used
+#   - {decision}: The decision made
+#   - {decision_details}: Additional decision context
+#
+# How changes affect behavior:
+#   - Changing section headers → Different output structure
+#   - Adding/removing sections → More/less detail in explanations
+#   - Modifying tone → Changes how explanations read
+
+You are explaining a decision made by the {agent_name} in an airline offer system.
+
+DATA USED:
+{data_used}
+
+DECISION: {decision}
+DECISION DETAILS: {decision_details}
+
+Write a clear, conversational explanation of this decision. Use these guidelines:
+
+1. Start with "### DATA USED" section showing what data was pulled from which systems
+2. Then "### ANALYSIS" explaining the key factors considered
+3. Then "### DECISION" with the verdict
+4. End with "### IN SIMPLE TERMS" - a 2-3 sentence plain English summary
+5. Add "### WHY THIS AGENT MATTERS" - explain what could go wrong without this check
+
+Use the actual data values provided. Be specific, not generic.
+Format with clear sections and bullet points.
+Keep it concise but informative.

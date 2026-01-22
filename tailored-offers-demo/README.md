@@ -57,15 +57,30 @@ cd frontend && npm install && npm run dev
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### How the Offer Agent and Channel Work Together (Plain English)
+
+1. **Offer Agent's Job**: Figure out which upgrade offer to give each customer
+   - "I have this customer data and these possible offers"
+   - "Let me check: Is the computer sure? Did they have problems? Do they need a discount?"
+   - "Based on everything I checked, here's the best offer: Business Class at $199"
+
+2. **Channel's Job**: Decide the best way to send that offer
+   - The Offer Agent gives the offer to the Channel
+   - "I figured out the offer, now you send it"
+   - The Channel looks at customer preferences: "Did they say email is okay? Do they have the app?"
+   - The Channel picks the best method: email, app notification, or text message
+
+Think of it like a restaurant: The Chef (Offer Agent) decides what food to make. The Waiter (Channel) decides how to serve it (on a plate, in a box, etc.).
+
 ### Why Only 1 Agent?
 
 | Component | Type | Why? |
 |-----------|------|------|
 | Customer Intelligence | ⚡ Workflow | Simple yes/no eligibility check |
 | Flight Optimization | ⚡ Workflow | Data lookup, not a decision |
-| **Offer Orchestration** | 🧠 **Agent** | Complex 15+ factor decision with audit trail |
+| **Offer Orchestration** | 🧠 **Agent (Offer Agent)** | Figures out which offer to give - Complex 15+ factor decision with audit trail |
 | Personalization | ✨ LLM Call | Text generation, not decision-making |
-| Channel & Timing | ⚡ Workflow | Simple rules (has consent? → which channel) |
+| Channel & Timing | ⚡ Workflow | Receives offer from Offer Agent and decides best method to send it (email, app notification, text message) based on simple rules (has consent? → which channel) |
 | Tracking Setup | 🏷️ Post-Decision | Just attaches A/B group + tracking ID |
 
 **Key insight:** Use agents where they add value, not everywhere for consistency.

@@ -1,19 +1,31 @@
 """
-Offer Orchestration Agent - ReWOO Pattern Implementation
+Offer Agent - Simple 3-Step Process
 
-ReWOO (Reasoning WithOut Observation) Pattern:
-1. PLANNER: LLM creates a complete reasoning plan upfront
-2. WORKER: Execute each evaluation step (deterministic)
-3. SOLVER: LLM synthesizes all results into final decision
+How it works (in plain English):
+1. PLANNER: I look at the customer data and make a plan
+   - "I have this customer info and these offers"
+   - "Here's what I need to check before deciding"
+   - The planner writes down a simple plan
 
-This pattern ensures:
-- All trade-offs are explicitly evaluated (not skipped)
-- Each step is traceable and explainable
-- Consistent reasoning across runs
+2. WORKER: I do all the checks from the plan
+   - "Now I'm checking each thing on the list"
+   - "Is the computer sure? Did they have problems? Do they need a discount?"
+   - The worker goes through the plan step by step
 
-IMPORTANT: Discounts are NOT decided by the agent autonomously.
-The agent applies PRE-APPROVED policies defined by Revenue Management.
-See config/discount_policies.json for approved discount tiers.
+3. SOLVER: I look at all the results and decide
+   - "I checked everything, here's what I found"
+   - "Based on all this, here's the best offer to give"
+   - I give this offer to the channel for sending
+   - The channel decides the best way to send it (email, app, etc)
+
+This way is good because:
+- I check everything important (nothing gets skipped)
+- Anyone can see what I checked and why I decided
+- I make the same kind of decisions every time
+
+IMPORTANT: I don't make up discounts on my own.
+I only use discounts that Revenue Management already approved.
+See config/discount_policies.json for the approved discount rules.
 """
 from typing import Dict, Any, List, Optional
 import json
@@ -68,84 +80,92 @@ class ReWOOPlan:
 
 
 # System prompt for the PLANNER phase
-PLANNER_PROMPT = """You are a planning agent for offer decisions. Your job is to create an evaluation plan.
+PLANNER_PROMPT = """I have information about a customer and some upgrade offers I can give them.
 
-Given the customer and offer context, identify which trade-offs need to be evaluated.
+My job is to look at this information and make a simple plan. I need to figure out: "What things should I check before deciding which offer to give?"
 
-Available evaluation types:
-- CONFIDENCE: Compare ML confidence levels between offers
-- RELATIONSHIP: Check if customer has recent service issues
-- PRICE_SENSITIVITY: Evaluate if discount should be applied
-- INVENTORY: Check cabin priority and availability
+Here are the things I can check:
+- CONFIDENCE: How sure is the computer that this customer will buy each offer?
+- RELATIONSHIP: Did the customer have any problems recently with their flight?
+- PRICE_SENSITIVITY: Will this customer only buy if I give them a discount?
+- INVENTORY: Which airplane seats do we need to fill the most?
 
-Output a JSON plan with steps to evaluate. Example:
+I need to write my plan like this:
 ```json
 {
   "steps": [
-    {"step_id": "E1", "evaluation_type": "CONFIDENCE", "description": "Compare ML confidence: Business 50% vs MCE 92%"},
-    {"step_id": "E2", "evaluation_type": "RELATIONSHIP", "description": "Customer had recent service issue"},
-    {"step_id": "E3", "evaluation_type": "PRICE_SENSITIVITY", "description": "Check if discount needed for conversion"}
+    {"step_id": "E1", "evaluation_type": "CONFIDENCE", "description": "The computer is 50% sure about Business but 92% sure about Main Cabin Extra"},
+    {"step_id": "E2", "evaluation_type": "RELATIONSHIP", "description": "Customer had a problem with their seat last week"},
+    {"step_id": "E3", "evaluation_type": "PRICE_SENSITIVITY", "description": "Check if we need to give a discount to get them to buy"}
   ],
-  "reasoning": "This customer has low ML confidence for Business and a recent service issue, so we need to evaluate confidence and relationship trade-offs."
+  "reasoning": "I see the computer is not very sure about Business class, and the customer had a recent problem, so I want to check both of these things carefully."
 }
 ```
 
-Only include steps that are RELEVANT based on the data. Don't include all steps if not needed."""
+Important: Only check things that actually matter for this customer. Don't check everything if you don't need to."""
 
 
 # System prompt for the SOLVER phase
-SOLVER_PROMPT = """You are a decision-making agent. Based on the evaluation results, make a final offer decision.
+SOLVER_PROMPT = """The planner made a plan. The worker did all the checks. Now I have all the results.
 
-You will receive:
-1. Customer context
-2. Available offers with EV calculations
-3. Results from each evaluation step
+My job is to look at everything and make the final decision about which upgrade offer to give this customer.
 
-Your job is to SYNTHESIZE all evaluations and make a final decision.
+Here's what I have:
+1. Information about the customer
+2. Different upgrade offers I can give (with prices)
+3. Results from all the checks that were done
 
-Consider:
-- If CONFIDENCE evaluation shows low confidence for high-EV offer, prefer the safer option
-- If RELATIONSHIP evaluation shows recent issue, apply goodwill discount or choose gentler offer
-- If PRICE_SENSITIVITY shows high sensitivity, apply appropriate discount
+Now I need to put it all together and decide:
 
-Output your decision in JSON format:
+Things to think about:
+- If the computer is not very sure about an expensive offer, maybe I should give them a cheaper, safer offer instead
+- If the customer had a problem recently, I should give them a discount to make them feel better
+- If the customer usually only buys when things are on sale, I should give them a discount
+
+I need to write my decision like this:
 ```json
 {
   "selected_offer": "IU_BUSINESS" or "MCE" or "IU_PREMIUM_ECONOMY",
   "offer_price": <number>,
   "discount_percent": <0-20>,
   "confidence": "high" or "medium" or "low",
-  "synthesis": "Brief explanation of how you weighed the trade-offs",
-  "key_factors": ["factor1", "factor2"]
+  "synthesis": "Simple explanation of how I made this decision",
+  "key_factors": ["reason1", "reason2"]
 }
-```"""
+```
+
+After I make this decision, I will give it to the channel. The channel will figure out the best way to send it to the customer (email, app notification, etc)."""
 
 
 # Combined prompt for API exposure (for prompt management endpoints)
 ORCHESTRATION_SYSTEM_PROMPT = f"""
-ReWOO (Reasoning WithOut Observation) Pattern for Offer Orchestration
+Offer Agent - Simple 3-Step Process
 
-This agent uses a 3-phase approach:
+This is how the Offer Agent works:
 
-=== PHASE 1: PLANNER ===
+=== STEP 1: PLANNER (Make a Plan) ===
 {PLANNER_PROMPT}
 
-=== PHASE 2: WORKER ===
-Executes deterministic evaluation rules for each trade-off identified by the planner.
+=== STEP 2: WORKER (Do the Checks) ===
+Now I do each check from the plan, one by one.
+I look at the data and figure out the answer to each question.
 
-=== PHASE 3: SOLVER ===
+=== STEP 3: SOLVER (Make the Final Decision) ===
 {SOLVER_PROMPT}
 """
 
 
 class OfferOrchestrationReWOO:
     """
-    Offer Orchestration using ReWOO (Reasoning WithOut Observation) pattern.
+    Offer Agent - Figures out which upgrade offer to give each customer.
 
-    Flow:
-    1. PLANNER: LLM analyzes context and creates evaluation plan
-    2. WORKER: Execute each evaluation step (deterministic rules)
-    3. SOLVER: LLM synthesizes results and makes final decision
+    How it works:
+    1. PLANNER: I look at the customer data and make a plan of what to check
+    2. WORKER: I do each check from the plan and write down what I found
+    3. SOLVER: I look at all the results and decide which offer is best
+
+    Then I give this offer to the channel for sending. The channel decides
+    the best way to send it (email, app notification, text message, etc).
     """
 
     # Offer configuration
@@ -213,30 +233,30 @@ class OfferOrchestrationReWOO:
         reasoning_parts.append("")
 
         # ============================================================
-        # PHASE 1: PLANNER - Create evaluation plan
+        # STEP 1: PLANNER - Make a plan of what to check
         # ============================================================
         reasoning_parts.append("=" * 50)
-        reasoning_parts.append("PHASE 1: PLANNER")
+        reasoning_parts.append("STEP 1: PLANNER (Making a Plan)")
         reasoning_parts.append("=" * 50)
 
         plan = self._run_planner(context, reasoning_parts)
 
         # ============================================================
-        # PHASE 2: WORKER - Execute each evaluation step
+        # STEP 2: WORKER - Do each check from the plan
         # ============================================================
         reasoning_parts.append("")
         reasoning_parts.append("=" * 50)
-        reasoning_parts.append("PHASE 2: WORKER (Executing Evaluations)")
+        reasoning_parts.append("STEP 2: WORKER (Doing the Checks)")
         reasoning_parts.append("=" * 50)
 
         evaluation_results = self._run_worker(plan, context, reasoning_parts)
 
         # ============================================================
-        # PHASE 3: SOLVER - Synthesize and decide
+        # STEP 3: SOLVER - Look at everything and make the decision
         # ============================================================
         reasoning_parts.append("")
         reasoning_parts.append("=" * 50)
-        reasoning_parts.append("PHASE 3: SOLVER (Final Decision)")
+        reasoning_parts.append("STEP 3: SOLVER (Making the Final Decision)")
         reasoning_parts.append("=" * 50)
 
         decision = self._run_solver(context, evaluation_results, reasoning_parts)
@@ -335,7 +355,7 @@ class OfferOrchestrationReWOO:
 
     def _run_planner(self, context: Dict[str, Any], reasoning_parts: List[str]) -> ReWOOPlan:
         """
-        PLANNER PHASE: Create evaluation plan using LLM.
+        PLANNER: Look at the customer data and make a plan of what to check.
         """
         # Build planner prompt
         planner_input = f"""
@@ -437,7 +457,7 @@ Available Offers:
 
     def _run_worker(self, plan: ReWOOPlan, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
         """
-        WORKER PHASE: Execute each evaluation step (deterministic rules).
+        WORKER: Go through the plan and do each check, one by one.
         """
         results = {}
 
@@ -462,7 +482,7 @@ Available Offers:
         return results
 
     def _evaluate_confidence(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
-        """Evaluate confidence trade-off between offers."""
+        """Check: How sure is the computer about each offer?"""
         offers = context['offer_options']
 
         # Find highest EV offer and highest confidence offer
@@ -497,10 +517,10 @@ Available Offers:
 
     def _evaluate_relationship(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
         """
-        Evaluate relationship risk from recent service issues.
+        Check: Did the customer have any problems recently?
 
-        NOTE: Discounts are from PRE-APPROVED policies, not agent decisions.
-        Policy: GOODWILL_RECOVERY (POL-GW-001) - Approved by Customer Experience Team
+        NOTE: I only use discounts that were already approved.
+        Policy: GOODWILL_RECOVERY (POL-GW-001) - Already approved by Customer Experience Team
         """
         customer = context['customer']
 
@@ -542,12 +562,12 @@ Available Offers:
 
     def _evaluate_price_sensitivity(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
         """
-        Evaluate price sensitivity and apply pre-approved discount policy.
+        Check: Will this customer only buy if we give them a discount?
 
-        NOTE: Discounts are from PRE-APPROVED policies, not agent decisions.
+        NOTE: I only use discounts that were already approved.
         Policies:
-        - PRICE_SENSITIVE_HIGH (POL-PS-001) - Approved by Revenue Management
-        - PRICE_SENSITIVE_MEDIUM (POL-PS-002) - Approved by Revenue Management
+        - PRICE_SENSITIVE_HIGH (POL-PS-001) - Already approved by Revenue Management
+        - PRICE_SENSITIVE_MEDIUM (POL-PS-002) - Already approved by Revenue Management
         """
         sensitivity = context['customer'].get('price_sensitivity', 'medium')
 
@@ -591,7 +611,7 @@ Available Offers:
         return result
 
     def _evaluate_inventory(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
-        """Evaluate inventory priority."""
+        """Check: Which airplane seats do we need to fill the most?"""
         offers = context['offer_options']
 
         high_priority = [o for o in offers if o.get('inventory_priority') == 'high']
@@ -606,7 +626,7 @@ Available Offers:
         return result
 
     def _evaluate_ev(self, context: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
-        """Simple EV comparison when no trade-offs needed."""
+        """Check: Which offer will make the most money?"""
         offers = context['offer_options']
         best = max(offers, key=lambda x: x['expected_value'])
 
@@ -623,7 +643,8 @@ Available Offers:
 
     def _run_solver(self, context: Dict[str, Any], evaluation_results: Dict[str, Any], reasoning_parts: List[str]) -> Dict[str, Any]:
         """
-        SOLVER PHASE: Synthesize evaluations and make final decision.
+        SOLVER: Look at all the check results and decide which offer is best.
+        Then give it to the channel for sending.
         """
         offers = context['offer_options']
         best_ev_offer = max(offers, key=lambda x: x['expected_value'])

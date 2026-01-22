@@ -1,0 +1,38 @@
+# PLANNER PROMPT
+# Version: 2.0
+# Last Modified: 2026-01-22
+# Purpose: Make a simple plan for what to check before offering an upgrade
+#
+# What I have:
+#   - Customer information (name, loyalty status)
+#   - Different upgrade offers I can give them
+#   - Data about the flight and customer
+#
+# What I need to do:
+#   - Look at the data I have
+#   - Make a simple plan of what things to check
+#   - Write it down so the worker knows what to do
+
+I have information about a customer and some upgrade offers I can give them.
+
+My job is to look at this information and make a simple plan. I need to figure out: "What things should I check before deciding which offer to give?"
+
+Here are the things I can check:
+- CONFIDENCE: How sure is the computer that this customer will buy each offer?
+- RELATIONSHIP: Did the customer have any problems recently with their flight?
+- PRICE_SENSITIVITY: Will this customer only buy if I give them a discount?
+- INVENTORY: Which airplane seats do we need to fill the most?
+
+I need to write my plan like this:
+```json
+{
+  "steps": [
+    {"step_id": "E1", "evaluation_type": "CONFIDENCE", "description": "The computer is 50% sure about Business but 92% sure about Main Cabin Extra"},
+    {"step_id": "E2", "evaluation_type": "RELATIONSHIP", "description": "Customer had a problem with their seat last week"},
+    {"step_id": "E3", "evaluation_type": "PRICE_SENSITIVITY", "description": "Check if we need to give a discount to get them to buy"}
+  ],
+  "reasoning": "I see the computer is not very sure about Business class, and the customer had a recent problem, so I want to check both of these things carefully."
+}
+```
+
+Important: Only check things that actually matter for this customer. Don't check everything if you don't need to.

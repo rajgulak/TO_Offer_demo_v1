@@ -15,7 +15,7 @@ export function InteractiveTutorial({ isOpen, onClose }: Props) {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('choreography');
   const [hitlEnabled, setHitlEnabled] = useState(false);
 
-  const totalSteps = audience === 'business' ? 6 : 9;
+  const totalSteps = audience === 'business' ? 6 : 12;
 
   useEffect(() => {
     if (isOpen) {
@@ -120,10 +120,13 @@ export function InteractiveTutorial({ isOpen, onClose }: Props) {
               {currentStep === 2 && <TechStep2 phase={animationPhase} executionMode={executionMode} setExecutionMode={setExecutionMode} hitlEnabled={hitlEnabled} setHitlEnabled={setHitlEnabled} />}
               {currentStep === 3 && <TechStep3 phase={animationPhase} />}
               {currentStep === 4 && <TechStepDataDecisions phase={animationPhase} />}
-              {currentStep === 5 && <TechStep4 phase={animationPhase} />}
-              {currentStep === 6 && <TechStep5 phase={animationPhase} />}
-              {currentStep === 7 && <TechStep6 phase={animationPhase} />}
-              {currentStep === 8 && <TechStep7 phase={animationPhase} />}
+              {currentStep === 5 && <TechStepEvalDriven phase={animationPhase} />}
+              {currentStep === 6 && <TechStepPromptEditing phase={animationPhase} />}
+              {currentStep === 7 && <TechStep4 phase={animationPhase} />}
+              {currentStep === 8 && <TechStep5 phase={animationPhase} />}
+              {currentStep === 9 && <TechStepHITLDemo phase={animationPhase} />}
+              {currentStep === 10 && <TechStep6 phase={animationPhase} />}
+              {currentStep === 11 && <TechStep7 phase={animationPhase} />}
             </>
           )}
         </div>
@@ -1306,6 +1309,376 @@ function TechStepDataDecisions({ phase }: { phase: number }) {
       {/* Reference */}
       <div className={`mt-3 text-[10px] text-slate-500 transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
         <span className="text-emerald-400">Reference:</span> Tailored Offers Data Mapping - All Groups - Master.xlsx | Priority 1 & 1.5 fields
+      </div>
+    </div>
+  );
+}
+
+function TechStepEvalDriven({ phase }: { phase: number }) {
+  const [activeScenario, setActiveScenario] = useState(0);
+
+  useEffect(() => {
+    if (phase >= 3) {
+      const interval = setInterval(() => {
+        setActiveScenario(prev => (prev + 1) % 4);
+      }, 2500);
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-6 overflow-y-auto">
+      <h2 className={`text-xl font-bold text-white mb-1 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Eval-Driven Development (EDD)
+      </h2>
+      <p className={`text-slate-400 text-sm mb-4 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Like TDD, but for AI agents - <span className="text-purple-400">test behaviors before shipping</span>
+      </p>
+
+      {/* EDD Cycle */}
+      <div className={`flex items-center gap-3 mb-4 transition-all duration-500 ${phase >= 2 ? 'opacity-100' : 'opacity-0'}`}>
+        {[
+          { icon: '📝', label: 'Define Expected', desc: 'What should agent do?' },
+          { icon: '🧪', label: 'Write Eval', desc: 'Automated test case' },
+          { icon: '🤖', label: 'Run Agent', desc: 'Execute on scenario' },
+          { icon: '✅', label: 'Assert Result', desc: 'Verify decision' },
+        ].map((step, i) => (
+          <div key={i} className="flex items-center">
+            <div className={`w-24 rounded-lg p-2 text-center transition-all ${
+              i <= activeScenario ? 'bg-purple-900/30 border border-purple-500/50' : 'bg-slate-800 border border-slate-700'
+            }`}>
+              <div className="text-xl mb-1">{step.icon}</div>
+              <div className={`text-[10px] font-medium ${i <= activeScenario ? 'text-purple-300' : 'text-slate-400'}`}>{step.label}</div>
+              <div className="text-[8px] text-slate-500 mt-0.5">{step.desc}</div>
+            </div>
+            {i < 3 && <span className={`mx-1 ${i < activeScenario ? 'text-purple-400' : 'text-slate-600'}`}>→</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* Eval Scenarios Table */}
+      <div className={`bg-slate-900 rounded-xl p-3 w-full max-w-2xl transition-all duration-500 ${phase >= 3 ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="text-sm text-white mb-2 flex items-center gap-2">
+          <span className="text-purple-400">🧪</span> Our Evaluation Suite
+        </div>
+        <table className="w-full text-[10px]">
+          <thead>
+            <tr className="text-slate-500 border-b border-slate-700">
+              <th className="text-left py-1 w-24">Scenario</th>
+              <th className="text-left py-1">Test Case</th>
+              <th className="text-left py-1 w-32">Expected Behavior</th>
+              <th className="text-left py-1 w-20">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { id: 'ABC123', test: 'High EV, confident ML', expected: 'Offer Business @ full price', status: 'pass' },
+              { id: 'XYZ789', test: 'Low confidence ML prediction', expected: 'Fall back to safer offer', status: 'pass' },
+              { id: 'LMN456', test: 'Recent service issue', expected: 'Apply goodwill policy', status: 'pass' },
+              { id: 'DEF321', test: 'Zero inventory available', expected: 'Skip offer gracefully', status: 'pass' },
+              { id: 'GHI654', test: 'Customer suppressed', expected: 'Block at guardrail', status: 'pass' },
+              { id: 'JKL789', test: 'High price sensitivity', expected: 'Apply discount policy', status: 'pass' },
+            ].map((row, i) => (
+              <tr key={i} className={`border-b border-slate-800/50 ${activeScenario === i % 4 ? 'bg-purple-900/20' : ''}`}>
+                <td className="py-1.5 text-emerald-400 font-mono">{row.id}</td>
+                <td className="py-1.5 text-slate-300">{row.test}</td>
+                <td className="py-1.5 text-slate-400">{row.expected}</td>
+                <td className="py-1.5">
+                  <span className="bg-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded text-[9px]">
+                    ✓ {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Why EDD Matters */}
+      <div className={`mt-3 grid grid-cols-3 gap-3 max-w-2xl transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        {[
+          { icon: '🔄', title: 'Regression Protection', desc: 'Catch behavior changes before production' },
+          { icon: '📊', title: 'Calibration Tracking', desc: 'Monitor prediction accuracy over time' },
+          { icon: '🎯', title: 'Confidence in Changes', desc: 'Safely iterate on prompts & logic' },
+        ].map((item, i) => (
+          <div key={i} className="bg-slate-800/50 rounded-lg p-2 text-center">
+            <div className="text-lg mb-1">{item.icon}</div>
+            <div className="text-[10px] text-white font-medium">{item.title}</div>
+            <div className="text-[9px] text-slate-400 mt-0.5">{item.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className={`mt-3 text-[10px] text-slate-500 transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="text-emerald-400">Run:</span> pytest tests/test_agent_scenarios.py | <span className="text-emerald-400">API:</span> /api/calibration
+      </div>
+    </div>
+  );
+}
+
+function TechStepPromptEditing({ phase }: { phase: number }) {
+  const [selectedPrompt, setSelectedPrompt] = useState<'planner' | 'solver' | 'personalization'>('planner');
+
+  const promptExamples = {
+    planner: {
+      name: 'Planner Prompt',
+      file: 'config/prompts/planner.txt',
+      description: 'Controls what factors the agent evaluates',
+      before: `Available evaluation types:
+- CONFIDENCE: Compare ML confidence
+- RELATIONSHIP: Check service issues
+- PRICE_SENSITIVITY: Evaluate discounts`,
+      after: `Available evaluation types:
+- CONFIDENCE: Compare ML confidence
+- RELATIONSHIP: Check service issues
+- PRICE_SENSITIVITY: Evaluate discounts
++ - WEATHER: Consider destination weather`,
+      effect: 'Agent now considers weather when planning offers',
+    },
+    solver: {
+      name: 'Solver Prompt',
+      file: 'config/prompts/solver.txt',
+      description: 'Controls how the agent weighs trade-offs',
+      before: `If CONFIDENCE shows low confidence,
+prefer the safer option`,
+      after: `If CONFIDENCE shows low confidence,
+ALWAYS prefer safer option
+(prioritize customer trust over revenue)`,
+      effect: 'Agent becomes more conservative in offer selection',
+    },
+    personalization: {
+      name: 'Personalization Prompt',
+      file: 'config/prompts/personalization.txt',
+      description: 'Controls message tone and content',
+      before: `Match urgency to time-to-departure
+Keep it concise but compelling`,
+      after: `ALWAYS emphasize limited availability
+Include: "Only X hours left!"
+Create fear of missing out`,
+      effect: 'Messages become more urgent and action-oriented',
+    },
+  };
+
+  const selected = promptExamples[selectedPrompt];
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-6 overflow-y-auto">
+      <h2 className={`text-xl font-bold text-white mb-1 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Prompt Editing: Tune Agent Behavior
+      </h2>
+      <p className={`text-slate-400 text-sm mb-4 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        Edit prompts to change <span className="text-cyan-400">how agents reason</span> - no code changes needed
+      </p>
+
+      {/* Prompt Selector */}
+      <div className={`flex gap-2 mb-4 transition-all duration-500 ${phase >= 2 ? 'opacity-100' : 'opacity-0'}`}>
+        {(['planner', 'solver', 'personalization'] as const).map((prompt) => (
+          <button
+            key={prompt}
+            onClick={() => setSelectedPrompt(prompt)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              selectedPrompt === prompt
+                ? 'bg-cyan-600 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            {promptExamples[prompt].name}
+          </button>
+        ))}
+      </div>
+
+      {/* Before/After Comparison */}
+      <div className={`flex gap-4 max-w-3xl transition-all duration-500 ${phase >= 2 ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Before */}
+        <div className="flex-1 bg-slate-900 rounded-xl p-3 border border-slate-700">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-red-400 text-xs font-bold">BEFORE</span>
+            <span className="text-slate-500 text-[10px]">{selected.file}</span>
+          </div>
+          <pre className="text-[10px] text-slate-400 font-mono whitespace-pre-wrap">
+            {selected.before}
+          </pre>
+        </div>
+
+        {/* Arrow */}
+        <div className="flex items-center">
+          <div className="text-2xl text-cyan-400">→</div>
+        </div>
+
+        {/* After */}
+        <div className="flex-1 bg-slate-900 rounded-xl p-3 border border-cyan-500/50">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-emerald-400 text-xs font-bold">AFTER</span>
+            <span className="text-slate-500 text-[10px]">edited</span>
+          </div>
+          <pre className="text-[10px] text-emerald-300 font-mono whitespace-pre-wrap">
+            {selected.after}
+          </pre>
+        </div>
+      </div>
+
+      {/* Effect */}
+      <div className={`mt-3 bg-cyan-900/20 border border-cyan-500/30 rounded-xl px-4 py-2 max-w-xl transition-all duration-500 ${phase >= 3 ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="flex items-center gap-2">
+          <span className="text-cyan-400">⚡</span>
+          <span className="text-white text-sm font-medium">Effect:</span>
+          <span className="text-cyan-300 text-sm">{selected.effect}</span>
+        </div>
+      </div>
+
+      {/* API & Hot Reload */}
+      <div className={`mt-4 grid grid-cols-2 gap-4 max-w-xl transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <div className="text-xs text-white font-medium mb-2 flex items-center gap-1">
+            <span>🔌</span> API Endpoints
+          </div>
+          <div className="space-y-1 text-[10px] font-mono">
+            <div className="text-emerald-400">GET /api/prompts</div>
+            <div className="text-slate-400 ml-2">List all prompts</div>
+            <div className="text-blue-400">PUT /api/prompts/{'{name}'}</div>
+            <div className="text-slate-400 ml-2">Update prompt</div>
+            <div className="text-amber-400">POST /api/prompts/{'{name}'}/test</div>
+            <div className="text-slate-400 ml-2">Test with variables</div>
+          </div>
+        </div>
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <div className="text-xs text-white font-medium mb-2 flex items-center gap-1">
+            <span>🔄</span> Hot Reload
+          </div>
+          <div className="text-[10px] text-slate-300 space-y-1">
+            <div>• Edit file or call API</div>
+            <div>• Changes instant - no restart</div>
+            <div>• Version auto-increments</div>
+            <div>• Git tracks history</div>
+          </div>
+        </div>
+      </div>
+
+      {/* File Location */}
+      <div className={`mt-3 text-[10px] text-slate-500 transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="text-emerald-400">Location:</span> config/prompts/*.txt | <span className="text-emerald-400">Docs:</span> SPECS.md → Prompt Editing Guide
+      </div>
+    </div>
+  );
+}
+
+function TechStepHITLDemo({ phase }: { phase: number }) {
+  const [demoStep, setDemoStep] = useState(0);
+
+  useEffect(() => {
+    if (phase >= 2) {
+      const interval = setInterval(() => {
+        setDemoStep(prev => (prev + 1) % 4);
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-6 overflow-y-auto">
+      <h2 className={`text-xl font-bold text-white mb-1 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        HITL in Action: Live Demo
+      </h2>
+      <p className={`text-slate-400 text-sm mb-4 transition-all duration-500 ${phase >= 1 ? 'opacity-100' : 'opacity-0'}`}>
+        See how <span className="text-amber-400">human approval</span> integrates with the agent workflow
+      </p>
+
+      {/* Demo Flow */}
+      <div className={`flex gap-4 transition-all duration-500 ${phase >= 2 ? 'opacity-100' : 'opacity-0'}`}>
+        {/* Left: Agent Decision */}
+        <div className={`w-56 rounded-xl p-3 border-2 transition-all duration-300 ${
+          demoStep === 0 ? 'bg-blue-900/30 border-blue-500' : 'bg-slate-800/50 border-slate-700'
+        }`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">🤖</span>
+            <span className={`text-sm font-bold ${demoStep === 0 ? 'text-blue-300' : 'text-slate-400'}`}>1. Agent Decides</span>
+          </div>
+          <div className="bg-slate-900/50 rounded p-2 text-[10px]">
+            <div className="text-slate-400">Customer: David Kim (JKL789)</div>
+            <div className="text-emerald-400 mt-1">Offer: Business @ $499</div>
+            <div className="text-amber-400 mt-1">⚠️ High value - needs approval</div>
+          </div>
+        </div>
+
+        {/* Middle: Approval Queue */}
+        <div className={`w-64 rounded-xl p-3 border-2 transition-all duration-300 ${
+          demoStep === 1 || demoStep === 2 ? 'bg-amber-900/30 border-amber-500' : 'bg-slate-800/50 border-slate-700'
+        }`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">👤</span>
+            <span className={`text-sm font-bold ${demoStep === 1 || demoStep === 2 ? 'text-amber-300' : 'text-slate-400'}`}>2. Human Reviews</span>
+          </div>
+          <div className="bg-slate-900/50 rounded p-2">
+            <div className="flex items-center justify-between text-[10px] mb-2">
+              <span className="text-amber-400">PENDING APPROVAL</span>
+              <span className="text-slate-500">2 min ago</span>
+            </div>
+            <div className="text-[10px] text-slate-300 mb-2">
+              "Business Class upgrade for price-sensitive customer at $499 (15% discount applied)"
+            </div>
+            <div className="flex gap-2">
+              <button className={`px-2 py-1 rounded text-[10px] transition-all ${
+                demoStep === 2 ? 'bg-emerald-600 text-white scale-110' : 'bg-emerald-900/50 text-emerald-400'
+              }`}>
+                ✓ Approve
+              </button>
+              <button className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-[10px]">
+                ✗ Deny
+              </button>
+              <button className="bg-slate-700 text-slate-300 px-2 py-1 rounded text-[10px]">
+                ✎ Modify
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Resume */}
+        <div className={`w-56 rounded-xl p-3 border-2 transition-all duration-300 ${
+          demoStep === 3 ? 'bg-emerald-900/30 border-emerald-500' : 'bg-slate-800/50 border-slate-700'
+        }`}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">▶️</span>
+            <span className={`text-sm font-bold ${demoStep === 3 ? 'text-emerald-300' : 'text-slate-400'}`}>3. Workflow Resumes</span>
+          </div>
+          <div className="bg-slate-900/50 rounded p-2 text-[10px]">
+            <div className="text-emerald-400">✓ Approved by: Revenue Manager</div>
+            <div className="text-slate-400 mt-1">Proceeding to personalization...</div>
+            <div className="text-blue-400 mt-1">→ Channel selection</div>
+            <div className="text-blue-400">→ Send offer</div>
+          </div>
+        </div>
+      </div>
+
+      {/* State Persistence */}
+      <div className={`mt-4 bg-slate-800/50 rounded-xl p-3 max-w-xl transition-all duration-500 ${phase >= 3 ? 'opacity-100' : 'opacity-0'}`}>
+        <div className="text-sm text-white mb-2 flex items-center gap-2">
+          <span className="text-purple-400">💾</span> State Persistence (LangGraph Checkpointing)
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-[10px]">
+          <div className="bg-slate-900/50 rounded p-2">
+            <div className="text-purple-400 font-medium">What's Saved:</div>
+            <div className="text-slate-400 mt-1">• Full agent context</div>
+            <div className="text-slate-400">• Partial workflow state</div>
+            <div className="text-slate-400">• ML predictions used</div>
+            <div className="text-slate-400">• Offer decision rationale</div>
+          </div>
+          <div className="bg-slate-900/50 rounded p-2">
+            <div className="text-emerald-400 font-medium">On Resume:</div>
+            <div className="text-slate-400 mt-1">• Restore from checkpoint</div>
+            <div className="text-slate-400">• Apply human decision</div>
+            <div className="text-slate-400">• Continue from pause point</div>
+            <div className="text-slate-400">• No re-computation needed</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Try It */}
+      <div className={`mt-3 flex items-center gap-3 bg-amber-900/20 rounded-xl px-4 py-2 border border-amber-500/30 transition-all duration-500 ${phase >= 4 ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="text-xl">👆</span>
+        <div>
+          <div className="text-white text-sm font-medium">Try it: Enable HITL toggle, run JKL789</div>
+          <div className="text-amber-300 text-[10px]">Watch the approval flow in the Approvals Queue panel</div>
+        </div>
       </div>
     </div>
   );

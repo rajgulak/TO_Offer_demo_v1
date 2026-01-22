@@ -9,8 +9,11 @@ import { FinalDecisionPanel } from './components/FinalDecisionPanel';
 import { InteractiveTutorial } from './components/InteractiveTutorial';
 import { DemoControls, type ExecutionMode } from './components/DemoControls';
 import { HITLPanel } from './components/HITLPanel';
+import BusinessAgentDemo from './components/BusinessAgentDemo';
 import { useSSE } from './hooks/useSSE';
 import type { PNRSummary, EnrichedPNR, AgentResult, FinalDecision } from './types';
+
+type DemoMode = 'technical' | 'business';
 
 // TO Offer Prototype: 4 Workflows + 1 Agent + 1 LLM Call
 // Only Offer Orchestration is a true "agent" (complex multi-factor decision with explainability)
@@ -27,6 +30,9 @@ const AGENT_CONFIG = [
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function App() {
+  // Demo mode: 'business' for executive-friendly view, 'technical' for full details
+  const [demoMode, setDemoMode] = useState<DemoMode>('business');
+
   const [pnrList, setPnrList] = useState<PNRSummary[]>([]);
   const [selectedPNR, setSelectedPNR] = useState<string | null>(null);
   const [enrichedData, setEnrichedData] = useState<EnrichedPNR | null>(null);
@@ -190,8 +196,50 @@ function App() {
     }, executionMode);
   }, [selectedPNR, startEvaluation, startEvaluationHITL, hitlEnabled, executionMode]);
 
+  // If business mode, render the focused business demo
+  if (demoMode === 'business') {
+    return (
+      <div className="relative">
+        {/* Mode Switcher - Fixed Top Right */}
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-slate-800/90 backdrop-blur rounded-xl p-1 shadow-lg border border-slate-700">
+          <button
+            onClick={() => setDemoMode('business')}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all bg-cyan-600 text-white"
+          >
+            Business View
+          </button>
+          <button
+            onClick={() => setDemoMode('technical')}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white"
+          >
+            Technical View
+          </button>
+        </div>
+
+        <BusinessAgentDemo />
+      </div>
+    );
+  }
+
+  // Technical mode - original full demo
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* Mode Switcher - Fixed Top Right */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-white/90 backdrop-blur rounded-xl p-1 shadow-lg border border-slate-200">
+        <button
+          onClick={() => setDemoMode('business')}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900"
+        >
+          Business View
+        </button>
+        <button
+          onClick={() => setDemoMode('technical')}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white"
+        >
+          Technical View
+        </button>
+      </div>
+
       <Header />
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
