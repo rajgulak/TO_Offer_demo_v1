@@ -290,29 +290,85 @@ const TIER_BG: { [key: string]: string } = {
   'K': 'bg-amber-900/30 border-amber-500/50',
 };
 
-// The ACTUAL prompt that drives agent behavior - plain English!
-const AGENT_PROMPT_TEMPLATE = `You are the Offer Agent. Your job is to figure out the best upgrade offer for each passenger.
+// PLANNER PROMPT - Decides what to check
+const PLANNER_PROMPT_TEMPLATE = `I am the Planner. My job is to look at the customer data and make a plan of what things to check.
 
-## Suppression Rules (Check First):
-1. **Distressed Customer**: If customer is experiencing travel disruption → SUPPRESS (don't add stress)
-2. **Recently Contacted**: If customer was contacted within {minDaysSinceContact} days → SUPPRESS (avoid fatigue)
-3. **Flight Timing**: Only send offers when departure is within {sendoutTiming} hours
+## What I have:
+- Customer information (name, loyalty tier, revenue, recent issues)
+- Flight information (departure time, load factor)
+- ML scores (propensity and confidence for each offer)
 
-## Flight Eligibility:
-4. **Proactive Treatment**: Only proactively offer if flight LDF < {minLDFForProactive}% (has inventory to fill)
+## Suppression Checks (Check These First):
+1. **Distressed Customer**: Is customer experiencing travel disruption? → If yes, SUPPRESS
+2. **Recently Contacted**: Was customer contacted within {minDaysSinceContact} days? → If yes, SUPPRESS
+3. **Flight Timing**: Is departure within {sendoutTiming} hours? → If not, queue for later
+4. **Flight LDF**: Is flight LDF < {minLDFForProactive}%? → If not, lower priority
 
-## Decision Rules (If Not Suppressed):
-5. **Threshold Rule**: Only send offers if ML propensity score >= {scoreThreshold}%
-6. **Confidence Rule**: If ML confidence < {minConfidence}%, prefer safer (lower-tier) offers
-7. **VIP Treatment**: Customers with annual revenue >= ${"{vipRevenueThreshold}"} get priority handling
-8. **Service Recovery**: If customer had recent service issue, apply {goodwillDiscountPercent}% goodwill discount
-9. **Price Sensitivity**: If acceptance rate < 30%, apply up to {maxDiscount}% discount to improve conversion
-10. **Expected Value**: Always calculate EV = probability × price, select highest EV option that passes rules
+## If Not Suppressed, I Plan to Check:
+- **CONFIDENCE**: Is ML confidence < {minConfidence}%? → Need to evaluate confidence trade-off
+- **RELATIONSHIP**: Does customer have recent service issue? → Need to consider goodwill
+- **PRICE_SENSITIVITY**: Does customer have low acceptance rate? → May need discount
+- **VIP_TREATMENT**: Is annual revenue >= ${"{vipRevenueThreshold}"}? → VIP handling
+- **EXPECTED_VALUE**: Which offer has highest EV?
 
-## Your Task:
-First check suppression rules, then analyze the customer and flight data, apply decision rules, and recommend the best offer (or suppress if any rule fails).
+## My Task:
+Look at the data and create a list of things the Worker should check. Only include checks that are relevant based on the data I see.`;
 
-Think step-by-step and explain your reasoning.`;
+// WORKER RULES - Deterministic rules for each check type
+const WORKER_RULES_TEMPLATE = `I am the Worker. The Planner gave me a list of things to check. For each one, I call tools via MCP to get data, then apply these rules:
+
+## CONFIDENCE Check:
+- Call: get_ml_scores via MCP
+- If best EV offer has confidence < {minConfidence}% AND there's a safer offer with confidence > 85%
+- Recommend: Switch to safer offer
+
+## RELATIONSHIP Check:
+- Call: get_service_history via MCP
+- If customer has recent service issue AND annual revenue >= ${"{vipRevenueThreshold}"}
+- Recommend: Apply {goodwillDiscountPercent}% goodwill discount (pre-approved policy)
+
+## PRICE_SENSITIVITY Check:
+- Call: get_customer_behavior via MCP
+- If acceptance rate < 30%
+- Recommend: Apply up to {maxDiscount}% discount to improve conversion
+
+## VIP_TREATMENT Check:
+- Call: get_customer_value via MCP
+- If annual revenue >= ${"{vipRevenueThreshold}"}
+- Recommend: Priority handling with best available offer
+
+## EXPECTED_VALUE Check:
+- Call: get_pricing_catalog via MCP
+- Calculate: EV = probability × price × margin for each offer
+- Recommend: Offer with highest EV
+
+## My Task:
+Go through each check from the Planner, call the needed tools, and write down what I found.`;
+
+// SOLVER PROMPT - Makes final decision
+const SOLVER_PROMPT_TEMPLATE = `I am the Solver. The Worker did all the checks and gave me the results. Now I need to make the final decision.
+
+## What I Have:
+- All the check results from the Worker
+- ML scores and confidence levels
+- Customer information
+- Available offers with prices
+
+## Decision Rules:
+1. **Start with Best EV**: Begin with the offer that has highest expected value
+2. **Apply CONFIDENCE result**: If Worker said "switch to safer", pick the high-confidence offer
+3. **Apply RELATIONSHIP result**: If Worker said "apply goodwill", add {goodwillDiscountPercent}% discount
+4. **Apply PRICE_SENSITIVITY result**: If Worker said "apply discount", add up to {maxDiscount}% discount
+5. **Check Score Threshold**: Only send if ML score >= {scoreThreshold}%
+6. **Cap Discounts**: Never exceed max discount limits per offer type
+
+## Final Steps:
+1. Make my decision (which offer, what price)
+2. Call LLM to craft personalized message for the customer
+3. Give the offer + message to the Channel for delivery
+
+## My Task:
+Look at all the Worker's findings, apply the rules above, make a final decision, craft a message, and hand it to the Channel.`;
 
 export default function BusinessAgentDemo() {
   const [selectedPNR, setSelectedPNR] = useState<string>('ABC123');
@@ -328,9 +384,12 @@ export default function BusinessAgentDemo() {
   const [hitlPending, setHitlPending] = useState(false);
   const [pendingDecision, setPendingDecision] = useState<FinalDecision | null>(null);
 
-  // Editable prompt state
-  const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
+  // Editable prompt state - now split into 3 prompts
+  const [editedPlannerPrompt, setEditedPlannerPrompt] = useState<string | null>(null);
+  const [editedWorkerPrompt, setEditedWorkerPrompt] = useState<string | null>(null);
+  const [editedSolverPrompt, setEditedSolverPrompt] = useState<string | null>(null);
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
+  const [activePromptTab, setActivePromptTab] = useState<'planner' | 'worker' | 'solver'>('planner');
   const [promptVersion, setPromptVersion] = useState(1);
 
   // Adjustable decision variables - these represent POLICY CONFIG (JSON-based)
@@ -352,21 +411,29 @@ export default function BusinessAgentDemo() {
   // Score threshold for sending offers (from meeting: "If score > 0.7, send")
   const [scoreThreshold, setScoreThreshold] = useState<number>(70);
 
+  // Generate current prompts with variables replaced
+  const currentPlannerPrompt = (editedPlannerPrompt || PLANNER_PROMPT_TEMPLATE)
+    .replace('{minDaysSinceContact}', variables.minDaysSinceContact.toString())
+    .replace('{sendoutTiming}', variables.sendoutTiming.toString())
+    .replace('{minLDFForProactive}', variables.minLDFForProactive.toString())
+    .replace('{minConfidence}', variables.minConfidence.toString())
+    .replace('{vipRevenueThreshold}', variables.vipRevenueThreshold.toLocaleString());
+
+  const currentWorkerPrompt = (editedWorkerPrompt || WORKER_RULES_TEMPLATE)
+    .replace(/{minConfidence}/g, variables.minConfidence.toString())
+    .replace(/{vipRevenueThreshold}/g, variables.vipRevenueThreshold.toLocaleString())
+    .replace(/{goodwillDiscountPercent}/g, variables.goodwillDiscountPercent.toString())
+    .replace(/{maxDiscount}/g, variables.maxDiscount.toString());
+
+  const currentSolverPrompt = (editedSolverPrompt || SOLVER_PROMPT_TEMPLATE)
+    .replace('{goodwillDiscountPercent}', variables.goodwillDiscountPercent.toString())
+    .replace('{maxDiscount}', variables.maxDiscount.toString())
+    .replace('{scoreThreshold}', scoreThreshold.toString());
+
   // Ranking Mode: Customer-level (threshold) vs Flight-level (top-X)
   // From ML team email: Customer-level is simpler, aligns with business objective
   const [rankingMode, setRankingMode] = useState<RankingMode>('customer-level');
   const [topXPerFlight, setTopXPerFlight] = useState<number>(10);
-
-  // Generate the actual prompt with current values
-  const currentPrompt = AGENT_PROMPT_TEMPLATE
-    .replace('{scoreThreshold}', scoreThreshold.toString())
-    .replace('{minConfidence}', variables.minConfidence.toString())
-    .replace('{vipRevenueThreshold}', variables.vipRevenueThreshold.toLocaleString())
-    .replace('{goodwillDiscountPercent}', variables.goodwillDiscountPercent.toString())
-    .replace('{maxDiscount}', variables.maxDiscount.toString())
-    .replace('{sendoutTiming}', variables.sendoutTiming.toString())
-    .replace('{minDaysSinceContact}', variables.minDaysSinceContact.toString())
-    .replace('{minLDFForProactive}', variables.minLDFForProactive.toString());
 
   const scenario = SCENARIOS[selectedPNR];
 
@@ -413,11 +480,16 @@ export default function BusinessAgentDemo() {
     const evalSteps: EvaluationResult[] = [];
 
     // Show which prompt is being used
-    if (editedPrompt) {
+    const hasCustomPrompts = editedPlannerPrompt || editedWorkerPrompt || editedSolverPrompt;
+    if (hasCustomPrompts) {
       thoughts.push(`📝 I'm using YOUR custom instructions (version ${promptVersion})`);
-      thoughts.push(`   → Your changes are active!\n`);
+      const customParts = [];
+      if (editedPlannerPrompt) customParts.push('Planner');
+      if (editedWorkerPrompt) customParts.push('Worker');
+      if (editedSolverPrompt) customParts.push('Solver');
+      thoughts.push(`   → Modified: ${customParts.join(', ')}\n`);
     } else {
-      thoughts.push(`📝 I'm using my standard instructions\n`);
+      thoughts.push(`📝 I'm using my standard 3-prompt setup (Planner + Worker + Solver)\n`);
     }
     await sleep(400);
     setPlannerThought(thoughts.join('\n'));
@@ -798,7 +870,7 @@ export default function BusinessAgentDemo() {
     await sleep(300);
     setShowingDecision(true);
 
-  }, [selectedPNR, scenario, variables, scoreThreshold, hitlEnabled, editedPrompt, promptVersion, rankingMode, topXPerFlight]);
+  }, [selectedPNR, scenario, variables, scoreThreshold, hitlEnabled, editedPlannerPrompt, editedWorkerPrompt, editedSolverPrompt, promptVersion, rankingMode, topXPerFlight]);
 
   // HITL Approval handler
   const handleApprove = useCallback(() => {
@@ -945,109 +1017,304 @@ export default function BusinessAgentDemo() {
               </div>
             </div>
 
+            {/* Determine if any prompts are customized */}
             <div className={`bg-slate-800/80 border rounded-xl p-5 mb-6 ${
-              isEditingPrompt ? 'border-cyan-500' : editedPrompt ? 'border-emerald-500' : 'border-purple-500/50'
+              isEditingPrompt ? 'border-cyan-500' : (editedPlannerPrompt || editedWorkerPrompt || editedSolverPrompt) ? 'border-emerald-500' : 'border-purple-500/50'
             }`}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">📝</span>
-                  <span className="font-semibold text-purple-300">Agent Prompt</span>
-                  <span className="text-xs text-slate-400">(Plain English Instructions)</span>
-                  {editedPrompt && (
-                    <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">
-                      v{promptVersion} - Modified
-                    </span>
-                  )}
-                </div>
-              <div className="flex items-center gap-2">
-                {!isEditingPrompt ? (
-                  <button
-                    onClick={() => {
-                      setIsEditingPrompt(true);
-                      if (!editedPrompt) {
-                        setEditedPrompt(currentPrompt);
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
-                  >
-                    <span>✏️</span> Edit Prompt
-                  </button>
-                ) : (
-                  <>
+                  {/* Tab Buttons */}
+                  <div className="flex gap-2 mb-4 border-b border-slate-700 pb-2">
                     <button
-                      onClick={() => {
-                        setIsEditingPrompt(false);
-                        setPromptVersion(v => v + 1);
-                      }}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
+                      onClick={() => setActivePromptTab('planner')}
+                      className={`px-4 py-2 text-sm rounded-t-lg transition-all ${
+                        activePromptTab === 'planner'
+                          ? 'bg-purple-600/30 text-purple-300 border-b-2 border-purple-500'
+                          : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
+                      }`}
                     >
-                      <span>✓</span> Save Changes
+                      <span className="mr-1">📋</span> Planner
+                      {editedPlannerPrompt && <span className="ml-1 text-[10px]">●</span>}
                     </button>
                     <button
-                      onClick={() => {
-                        setIsEditingPrompt(false);
-                        setEditedPrompt(null);
-                        setPromptVersion(1);
-                      }}
-                      className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
+                      onClick={() => setActivePromptTab('worker')}
+                      className={`px-4 py-2 text-sm rounded-t-lg transition-all ${
+                        activePromptTab === 'worker'
+                          ? 'bg-cyan-600/30 text-cyan-300 border-b-2 border-cyan-500'
+                          : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
+                      }`}
                     >
-                      <span>↺</span> Reset to Default
+                      <span className="mr-1">🔍</span> Worker
+                      {editedWorkerPrompt && <span className="ml-1 text-[10px]">●</span>}
                     </button>
-                  </>
-                )}
-              </div>
-            </div>
+                    <button
+                      onClick={() => setActivePromptTab('solver')}
+                      className={`px-4 py-2 text-sm rounded-t-lg transition-all ${
+                        activePromptTab === 'solver'
+                          ? 'bg-emerald-600/30 text-emerald-300 border-b-2 border-emerald-500'
+                          : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
+                      }`}
+                    >
+                      <span className="mr-1">✅</span> Solver
+                      {editedSolverPrompt && <span className="ml-1 text-[10px]">●</span>}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">📝</span>
+                      <span className="font-semibold text-purple-300">
+                        {activePromptTab === 'planner' && 'Planner Prompt'}
+                        {activePromptTab === 'worker' && 'Worker Rules'}
+                        {activePromptTab === 'solver' && 'Solver Prompt'}
+                      </span>
+                      <span className="text-xs text-slate-400">(Plain English Instructions)</span>
+                      {(editedPlannerPrompt || editedWorkerPrompt || editedSolverPrompt) && (
+                        <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                          v{promptVersion} - Modified
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!isEditingPrompt ? (
+                        <button
+                          onClick={() => {
+                            setIsEditingPrompt(true);
+                            // Initialize all prompts if not already edited
+                            if (!editedPlannerPrompt) setEditedPlannerPrompt(currentPlannerPrompt);
+                            if (!editedWorkerPrompt) setEditedWorkerPrompt(currentWorkerPrompt);
+                            if (!editedSolverPrompt) setEditedSolverPrompt(currentSolverPrompt);
+                          }}
+                          className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
+                        >
+                          <span>✏️</span> Edit Prompt
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => {
+                              // Parse all three prompts and extract values to update sliders
+                              const allPrompts = [editedPlannerPrompt, editedWorkerPrompt, editedSolverPrompt].join('\n');
+
+                              if (allPrompts) {
+                                // Extract minDaysSinceContact - look for pattern like "within X days"
+                                const daysMatch = allPrompts.match(/within\s+(\d+)\s+days?\s*→\s*SUPPRESS/i);
+                                if (daysMatch) {
+                                  const days = parseInt(daysMatch[1]);
+                                  if (!isNaN(days) && days >= 1 && days <= 14) {
+                                    setVariables(prev => ({ ...prev, minDaysSinceContact: days }));
+                                  }
+                                }
+
+                                // Extract vipRevenueThreshold - look for pattern like ">= $XX,XXX"
+                                const vipMatch = allPrompts.match(/revenue\s*>=?\s*\$(\d{1,3}(?:,?\d{3})*)/i);
+                                if (vipMatch) {
+                                  const amount = parseInt(vipMatch[1].replace(/,/g, ''));
+                                  if (!isNaN(amount)) {
+                                    setVariables(prev => ({ ...prev, vipRevenueThreshold: amount }));
+                                  }
+                                }
+
+                                // Extract minConfidence - look for pattern like "< XX%"
+                                const confMatch = allPrompts.match(/confidence\s*<\s*(\d+)%/i);
+                                if (confMatch) {
+                                  const conf = parseInt(confMatch[1]);
+                                  if (!isNaN(conf) && conf >= 50 && conf <= 95) {
+                                    setVariables(prev => ({ ...prev, minConfidence: conf }));
+                                  }
+                                }
+
+                                // Extract goodwillDiscountPercent - look for pattern like "apply XX%"
+                                const goodwillMatch = allPrompts.match(/apply\s+(\d+)%\s+goodwill/i);
+                                if (goodwillMatch) {
+                                  const disc = parseInt(goodwillMatch[1]);
+                                  if (!isNaN(disc) && disc >= 0 && disc <= 20) {
+                                    setVariables(prev => ({ ...prev, goodwillDiscountPercent: disc }));
+                                  }
+                                }
+
+                                // Extract maxDiscount - look for pattern like "up to XX%"
+                                const maxDiscMatch = allPrompts.match(/up to\s+(\d+)%\s+discount/i);
+                                if (maxDiscMatch) {
+                                  const disc = parseInt(maxDiscMatch[1]);
+                                  if (!isNaN(disc) && disc >= 0 && disc <= 25) {
+                                    setVariables(prev => ({ ...prev, maxDiscount: disc }));
+                                  }
+                                }
+
+                                // Extract scoreThreshold - look for pattern like ">= XX%"
+                                const scoreMatch = allPrompts.match(/score\s*>=?\s*(\d+)%/i);
+                                if (scoreMatch) {
+                                  const score = parseInt(scoreMatch[1]);
+                                  if (!isNaN(score) && score >= 50 && score <= 95) {
+                                    setScoreThreshold(score);
+                                  }
+                                }
+
+                                // Extract sendoutTiming - look for pattern like "within XX hours"
+                                const timingMatch = allPrompts.match(/within\s+(\d+)\s+hours/i);
+                                if (timingMatch) {
+                                  const hours = parseInt(timingMatch[1]);
+                                  if (!isNaN(hours) && (hours === 24 || hours === 48 || hours === 72 || hours === 168)) {
+                                    setVariables(prev => ({ ...prev, sendoutTiming: hours as 72 | 48 | 24 }));
+                                  }
+                                }
+
+                                // Extract minLDFForProactive - look for pattern like "< XX%"
+                                const ldfMatch = allPrompts.match(/LDF\s*<\s*(\d+)%/i);
+                                if (ldfMatch) {
+                                  const ldf = parseInt(ldfMatch[1]);
+                                  if (!isNaN(ldf) && ldf >= 60 && ldf <= 95) {
+                                    setVariables(prev => ({ ...prev, minLDFForProactive: ldf }));
+                                  }
+                                }
+                              }
+
+                              setIsEditingPrompt(false);
+                              setPromptVersion(v => v + 1);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
+                          >
+                            <span>✓</span> Save Changes
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsEditingPrompt(false);
+                              setEditedPlannerPrompt(null);
+                              setEditedWorkerPrompt(null);
+                              setEditedSolverPrompt(null);
+                              setPromptVersion(1);
+                            }}
+                            className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded-lg flex items-center gap-1 transition-all"
+                          >
+                            <span>↺</span> Reset to Default
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
 
             {isEditingPrompt ? (
-              <textarea
-                value={editedPrompt || currentPrompt}
-                onChange={(e) => setEditedPrompt(e.target.value)}
-                className="w-full h-80 text-sm text-slate-300 font-mono bg-slate-900/50 rounded-lg p-4 border border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
-                placeholder="Edit the agent prompt here..."
-              />
+              <>
+                {activePromptTab === 'planner' && (
+                  <textarea
+                    value={editedPlannerPrompt || currentPlannerPrompt}
+                    onChange={(e) => setEditedPlannerPrompt(e.target.value)}
+                    className="w-full h-80 text-sm text-slate-300 font-mono bg-slate-900/50 rounded-lg p-4 border border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
+                    placeholder="Edit the planner prompt here..."
+                  />
+                )}
+                {activePromptTab === 'worker' && (
+                  <textarea
+                    value={editedWorkerPrompt || currentWorkerPrompt}
+                    onChange={(e) => setEditedWorkerPrompt(e.target.value)}
+                    className="w-full h-80 text-sm text-slate-300 font-mono bg-slate-900/50 rounded-lg p-4 border border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
+                    placeholder="Edit the worker rules here..."
+                  />
+                )}
+                {activePromptTab === 'solver' && (
+                  <textarea
+                    value={editedSolverPrompt || currentSolverPrompt}
+                    onChange={(e) => setEditedSolverPrompt(e.target.value)}
+                    className="w-full h-80 text-sm text-slate-300 font-mono bg-slate-900/50 rounded-lg p-4 border border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
+                    placeholder="Edit the solver prompt here..."
+                  />
+                )}
+              </>
             ) : (
-              <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-4 border border-slate-700 max-h-80 overflow-y-auto">
-                {editedPrompt || currentPrompt}
-              </pre>
+              <>
+                {activePromptTab === 'planner' && (
+                  <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-4 border border-slate-700 max-h-80 overflow-y-auto">
+                    {editedPlannerPrompt || currentPlannerPrompt}
+                  </pre>
+                )}
+                {activePromptTab === 'worker' && (
+                  <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-4 border border-slate-700 max-h-80 overflow-y-auto">
+                    {editedWorkerPrompt || currentWorkerPrompt}
+                  </pre>
+                )}
+                {activePromptTab === 'solver' && (
+                  <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 rounded-lg p-4 border border-slate-700 max-h-80 overflow-y-auto">
+                    {editedSolverPrompt || currentSolverPrompt}
+                  </pre>
+                )}
+              </>
             )}
 
             {isEditingPrompt ? (
               <div className="mt-3 p-3 bg-cyan-900/20 border border-cyan-500/30 rounded-lg text-xs text-cyan-200">
-                <strong>✏️ Edit Mode:</strong> Modify the prompt above to change agent behavior. Try adding new rules, changing thresholds, or adjusting the decision logic. Click "Save Changes" then re-run the agent to see the impact!
+                <strong>✏️ Edit Mode:</strong> Modify the {activePromptTab} prompt above to change agent behavior. Try adding new rules, changing thresholds, or adjusting the decision logic.
+                <div className="mt-2 pt-2 border-t border-cyan-500/30">
+                  <strong>💡 Smart Parsing:</strong> When you save, I'll automatically detect changes to numbers and update the sliders below!
+                  <ul className="mt-1 ml-4 space-y-0.5 text-[10px]">
+                    <li>• Change "within 7 days" → Updates "Min Days Since Contact" slider</li>
+                    <li>• Change "revenue {'>'}= $50,000" → Updates "VIP Revenue Threshold"</li>
+                    <li>• Change "confidence {'<'} 60%" → Updates "Min Confidence" slider</li>
+                    <li>• And more... Try it!</li>
+                  </ul>
+                </div>
               </div>
-            ) : editedPrompt ? (
+            ) : (editedPlannerPrompt || editedWorkerPrompt || editedSolverPrompt) ? (
               <div className="mt-3 p-3 bg-emerald-900/20 border border-emerald-500/30 rounded-lg text-xs text-emerald-200">
-                <strong>✅ Custom Prompt Active (v{promptVersion}):</strong> You've modified the agent's instructions. Run the agent to see how your changes affect the decision! Click "Edit Prompt" to make more changes or "Reset to Default" to restore original.
+                <strong>✅ Custom Prompts Active (v{promptVersion}):</strong> You've modified the agent's instructions. Run the agent to see how your changes affect the decision! Click "Edit Prompt" to make more changes or "Reset to Default" to restore original.
               </div>
             ) : (
               <div className="mt-3 p-3 bg-amber-900/20 border border-amber-500/30 rounded-lg text-xs text-amber-200">
-                <strong>💡 Key Insight:</strong> The agent's behavior is driven by plain English rules. Click "Edit Prompt" to directly modify the instructions, or change policy sliders to see how the prompt updates!
+                <strong>💡 Key Insight:</strong> The agent's behavior is driven by plain English rules in 3 separate prompts (Planner, Worker, Solver). Click tabs to see each one, then "Edit Prompt" to modify, or change policy sliders to see how prompts update!
               </div>
             )}
 
             {/* Example Edits */}
             {isEditingPrompt && (
               <div className="mt-3 p-3 bg-slate-900/50 border border-slate-700 rounded-lg">
-                <div className="text-xs text-slate-400 mb-2">💡 Try these edits:</div>
+                <div className="text-xs text-slate-400 mb-2">💡 Try these edits for the {activePromptTab} prompt:</div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setEditedPrompt(prev => (prev || currentPrompt) + '\n\n11. **Premium Priority**: Always prefer Business Class for Executive Platinum members.')}
-                    className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
-                  >
-                    + Add VIP Rule
-                  </button>
-                  <button
-                    onClick={() => setEditedPrompt(prev => (prev || currentPrompt).replace('SUPPRESS', 'DEFER (queue for later)'))}
-                    className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
-                  >
-                    Change SUPPRESS → DEFER
-                  </button>
-                  <button
-                    onClick={() => setEditedPrompt(prev => (prev || currentPrompt) + '\n\n12. **Aggressive Mode**: If flight LDF < 50%, apply extra 5% discount to all offers.')}
-                    className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
-                  >
-                    + Add Aggressive Discount Rule
-                  </button>
+                  {activePromptTab === 'planner' && (
+                    <>
+                      <button
+                        onClick={() => setEditedPlannerPrompt(prev => (prev || currentPlannerPrompt) + '\n\n## Additional Check:\n11. **Flight Timing**: Check departure time for urgency discounts')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        + Add Timing Check
+                      </button>
+                      <button
+                        onClick={() => setEditedPlannerPrompt(prev => (prev || currentPlannerPrompt).replace('SUPPRESS', 'DEFER (queue for later)'))}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        Change SUPPRESS → DEFER
+                      </button>
+                    </>
+                  )}
+                  {activePromptTab === 'worker' && (
+                    <>
+                      <button
+                        onClick={() => setEditedWorkerPrompt(prev => (prev || currentWorkerPrompt) + '\n\n## AGGRESSIVE_PRICING Check:\n- If flight LDF < 50%, add extra 5% discount')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        + Add Aggressive Pricing Rule
+                      </button>
+                      <button
+                        onClick={() => setEditedWorkerPrompt(prev => (prev || currentWorkerPrompt).replace(/confidence\s*<\s*\d+%/, 'confidence < 80%'))}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        Raise Confidence Threshold to 80%
+                      </button>
+                    </>
+                  )}
+                  {activePromptTab === 'solver' && (
+                    <>
+                      <button
+                        onClick={() => setEditedSolverPrompt(prev => (prev || currentSolverPrompt) + '\n\n## Premium Priority:\nAlways prefer Business Class for Executive Platinum members.')}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        + Add VIP Priority Rule
+                      </button>
+                      <button
+                        onClick={() => setEditedSolverPrompt(prev => (prev || currentSolverPrompt).replace(/(\d+)%\s+goodwill/, '15% goodwill'))}
+                        className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded transition-all"
+                      >
+                        Increase Goodwill to 15%
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -1644,9 +1911,15 @@ export default function BusinessAgentDemo() {
                   <span>📁</span> JSON / GitHub
                 </span>
               </div>
-              <div className="text-[10px] text-slate-400 mb-3 -mt-2">
+              <div className="text-[10px] text-slate-400 mb-2 -mt-2">
                 Business rules externalized in config (no code deployment)
               </div>
+
+              {agentPhase.phase !== 'idle' && (
+                <div className="text-[10px] bg-cyan-900/30 border border-cyan-500/30 text-cyan-200 p-2 rounded mb-3">
+                  💡 <strong>Tip:</strong> After changing any slider below, click "Run Agent" again to see the new behavior!
+                </div>
+              )}
 
               <div className="space-y-4">
                 {/* Ranking Mode Toggle - from ML team email */}
