@@ -213,14 +213,14 @@
         "cabin_iu_miles_burn_rev": 420
       },
       "MCE": {
-        "_note": "MCE also nearly full",
+        "_note": "MCE SOLD OUT - guardrail scenario",
         "cabin_capacity": 30,
-        "cabin_total_pax": 29,
-        "cabin_ticketed_actual_pax": 29,
-        "cabin_available": 1,
-        "expected_load_factor": 0.97,
+        "cabin_total_pax": 30,
+        "cabin_ticketed_actual_pax": 30,
+        "cabin_available": 0,
+        "expected_load_factor": 1.0,
         "cabin_aadvantage_pax": 18,
-        "cabin_total_revenue": 700,
+        "cabin_total_revenue": 725,
         "cabin_mileage_burn_rev": 0
       },
       "Y": {

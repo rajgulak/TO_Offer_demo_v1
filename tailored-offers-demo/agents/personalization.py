@@ -16,8 +16,15 @@ Architecture:
 - Can fall back to templates if LLM unavailable
 """
 from typing import Dict, Any, List
+import os
+import sys
+
 from .state import AgentState
 from .llm_service import get_llm, is_llm_available
+
+# Import prompt service for dynamic prompt loading
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config.prompt_service import get_personalization_prompt
 
 
 # System prompt for personalized message generation
@@ -226,8 +233,11 @@ Output the JSON format specified in your instructions.
         try:
             from langchain_core.messages import SystemMessage, HumanMessage
 
+            # Get the active personalization prompt (custom if set, otherwise default)
+            active_prompt = get_personalization_prompt()
+
             response = self.llm.invoke([
-                SystemMessage(content=PERSONALIZATION_SYSTEM_PROMPT),
+                SystemMessage(content=active_prompt),
                 HumanMessage(content=user_prompt)
             ])
 

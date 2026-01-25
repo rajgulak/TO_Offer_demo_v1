@@ -5,6 +5,8 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 interface HITLResult {
   status: string;
   approval_request_id?: string;
+  approval_reason?: string;
+  approval_reason_details?: string;
   proposed_offer?: {
     offer_type: string;
     price: number;
@@ -17,6 +19,30 @@ interface HITLResult {
 }
 
 type ExecutionMode = 'choreography' | 'planner-worker';
+
+// ReWOO-specific event types
+interface ReWOOPlanStep {
+  step_id: string;
+  evaluation_type: string;
+  description: string;
+}
+
+interface ReWOOWorkerStep {
+  step_id: string;
+  evaluation_type: string;
+  recommendation: string;
+  reasoning: string;
+}
+
+interface ReWOODecision {
+  selected_offer: string;
+  offer_price: number;
+  discount_applied: number;
+  expected_value: number;
+  reasoning: string;
+  policies_applied: string[];
+  should_send_offer: boolean;
+}
 
 interface SSECallbacks {
   onPipelineStart?: (data: { pnr: string; total_steps: number; execution_mode?: string }) => void;
@@ -40,6 +66,14 @@ interface SSECallbacks {
     total_duration_ms: number;
   }) => void;
   onError?: (error: string) => void;
+  // New ReWOO-specific callbacks
+  onReWOOPlannerComplete?: (data: {
+    plan: ReWOOPlanStep[];
+    reasoning: string;
+    offer_options: any[];
+  }) => void;
+  onReWOOWorkerStep?: (data: ReWOOWorkerStep) => void;
+  onReWOOSolverComplete?: (data: { decision: ReWOODecision }) => void;
 }
 
 export function useSSE() {
@@ -84,6 +118,22 @@ export function useSSE() {
     eventSource.addEventListener('agent_skip', (event) => {
       const data = JSON.parse(event.data);
       callbacks.onAgentSkip?.(data);
+    });
+
+    // ReWOO-specific events for Offer Orchestration
+    eventSource.addEventListener('rewoo_planner_complete', (event) => {
+      const data = JSON.parse(event.data);
+      callbacks.onReWOOPlannerComplete?.(data);
+    });
+
+    eventSource.addEventListener('rewoo_worker_step', (event) => {
+      const data = JSON.parse(event.data);
+      callbacks.onReWOOWorkerStep?.(data);
+    });
+
+    eventSource.addEventListener('rewoo_solver_complete', (event) => {
+      const data = JSON.parse(event.data);
+      callbacks.onReWOOSolverComplete?.(data);
     });
 
     eventSource.addEventListener('pipeline_complete', (event) => {

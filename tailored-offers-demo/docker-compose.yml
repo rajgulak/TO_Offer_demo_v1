@@ -16,6 +16,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - TAILORED_OFFERS_LLM_PROVIDER=${TAILORED_OFFERS_LLM_PROVIDER:-}
+      # Disable extra LLM calls for reasoning explanations (faster demo)
+      - USE_DYNAMIC_REASONING=false
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 10s

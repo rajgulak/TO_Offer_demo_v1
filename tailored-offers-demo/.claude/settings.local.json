@@ -33,7 +33,22 @@
       "Bash(__NEW_LINE_ae98f426117581d0__ echo \"=== Testing LMN456 \\(Relationship - Policy POL-GW-001\\) ===\")",
       "Bash(# Kill everything and verify pkill -9 -f \"\"python\"\" pkill -9 -f \"\"uvicorn\"\" sleep 2 # Verify no Python processes ps aux)",
       "Bash(md5:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebSearch",
+      "WebFetch(domain:langchain-ai.github.io)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker exec:*)",
+      "Bash(if [ -n \"$OPENAI_API_KEY\" ])",
+      "Bash(then echo \"Key is set \\($#OPENAI_API_KEY chars\\)\")",
+      "Bash(else echo \"Key NOT set\")",
+      "Bash(fi)",
+      "Bash(docker-compose exec:*)",
+      "Bash(__NEW_LINE_9b3507aec8df42ed__ echo \"\")",
+      "Bash(source:*)"
     ]
   }
 }

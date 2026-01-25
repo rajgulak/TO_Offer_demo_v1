@@ -14,6 +14,7 @@ from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -25,7 +26,11 @@ from agents.state import create_initial_state, OfferDecision
 from agents.customer_intelligence import CustomerIntelligenceAgent
 from agents.flight_optimization import FlightOptimizationAgent
 # ReWOO Pattern: Planner-Worker-Solver for Offer Orchestration
-from agents.offer_orchestration_rewoo import OfferOrchestrationReWOO as OfferOrchestrationAgent, ORCHESTRATION_SYSTEM_PROMPT
+from agents.offer_orchestration_rewoo import (
+    OfferOrchestrationReWOO as OfferOrchestrationAgent,
+    ORCHESTRATION_SYSTEM_PROMPT,
+    stream_offer_orchestration,  # New streaming function
+)
 from agents.personalization import PersonalizationAgent, PERSONALIZATION_SYSTEM_PROMPT
 from agents.channel_timing import ChannelTimingAgent
 from agents.measurement_learning import MeasurementLearningAgent
@@ -38,6 +43,24 @@ from infrastructure.feedback import (
     OutcomeType,
     record_offer_outcome,
     get_calibration_report,
+)
+
+# Prompt service for dynamic prompt management
+from config.prompt_service import (
+    PromptService,
+    set_custom_prompt,
+    reset_prompt,
+    is_prompt_custom,
+)
+
+# Policy configuration service
+from config.policy_config import (
+    PolicyService,
+    get_policy,
+    set_policy,
+    get_all_policies,
+    reset_policy,
+    POLICY_METADATA,
 )
 
 # MCP client for async data loading (only import if USE_MCP is enabled)
@@ -59,6 +82,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for pre-generated audio
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
 # ============ Pydantic Models ============
@@ -199,8 +227,42 @@ DEFAULT_PROMPTS = {
     }
 }
 
-# Store for custom prompts (in production, this would be in a database)
-custom_prompts: Dict[str, str] = {}
+# Prompt key mapping: maps frontend agent_id to PromptService keys
+PROMPT_KEY_MAP = {
+    "offer_orchestration": "offer_orchestration.planner",
+    "offer_orchestration.planner": "offer_orchestration.planner",
+    "offer_orchestration.worker": "offer_orchestration.worker",
+    "offer_orchestration.solver": "offer_orchestration.solver",
+    "personalization": "personalization.system",
+}
+
+# Extended prompts info for ReWOO phases (used by frontend)
+REWOO_PROMPTS = {
+    "offer_orchestration.planner": {
+        "type": "llm",
+        "name": "Planner",
+        "description": "Analyzes customer data and creates evaluation plan",
+        "icon": "📋",
+    },
+    "offer_orchestration.worker": {
+        "type": "llm",
+        "name": "Worker",
+        "description": "Executes evaluation steps (confidence, relationship, pricing)",
+        "icon": "⚙️",
+    },
+    "offer_orchestration.solver": {
+        "type": "llm",
+        "name": "Solver",
+        "description": "Synthesizes evidence and makes final offer decision",
+        "icon": "✅",
+    },
+    "personalization": {
+        "type": "llm",
+        "name": "Message",
+        "description": "Generates personalized upgrade offer messages",
+        "icon": "💬",
+    },
+}
 
 
 # ============ Data Loading (MCP-aware) ============
@@ -371,9 +433,33 @@ async def get_system_status():
     }
 
 
-@app.get("/api/agents/{agent_id}/prompt")
+@app.get("/api/agents/{agent_id:path}/prompt")
 async def get_agent_prompt(agent_id: str):
-    """Get the prompt configuration for an agent"""
+    """Get the prompt configuration for an agent or ReWOO phase"""
+    # Check if it's a ReWOO phase prompt (e.g., offer_orchestration.planner)
+    if agent_id in REWOO_PROMPTS:
+        info = REWOO_PROMPTS[agent_id]
+        prompt_key = PROMPT_KEY_MAP.get(agent_id, agent_id)
+        agent_id_part, prompt_type = prompt_key.split(".") if "." in prompt_key else (agent_id, "system")
+
+        current_prompt = PromptService.get_prompt(agent_id_part, prompt_type)
+        default_prompt = PromptService.get_default_prompt(agent_id_part, prompt_type)
+
+        return {
+            "agent_id": agent_id,
+            "type": "llm",
+            "name": info["name"],
+            "description": info["description"],
+            "icon": info.get("icon", "🤖"),
+            "system_prompt": current_prompt,
+            "is_custom": is_prompt_custom(prompt_key),
+            "default_prompt": default_prompt,
+            "editable": True,
+            "llm_provider": get_llm_provider_name(),
+            "prompt_key": prompt_key,
+        }
+
+    # Check legacy agent IDs
     if agent_id not in DEFAULT_PROMPTS:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
@@ -388,16 +474,25 @@ async def get_agent_prompt(agent_id: str):
             "editable": False
         }
 
-    # For LLM agents, return the prompt
+    # For LLM agents, get prompt from PromptService (persisted, used by agents)
+    prompt_key = PROMPT_KEY_MAP.get(agent_id, agent_id)
+    agent_id_part, prompt_type = prompt_key.split(".") if "." in prompt_key else (agent_id, "system")
+
+    # Get the current active prompt (custom if set, otherwise default)
+    current_prompt = PromptService.get_prompt(agent_id_part, prompt_type)
+    default_prompt = PromptService.get_default_prompt(agent_id_part, prompt_type)
+    is_custom = is_prompt_custom(prompt_key)
+
     return {
         "agent_id": agent_id,
         "type": "llm",
         "description": prompt_config["description"],
-        "system_prompt": custom_prompts.get(agent_id, prompt_config.get("system_prompt", "")),
-        "is_custom": agent_id in custom_prompts,
-        "default_prompt": prompt_config.get("system_prompt", ""),
+        "system_prompt": current_prompt,
+        "is_custom": is_custom,
+        "default_prompt": default_prompt,
         "editable": True,
-        "llm_provider": get_llm_provider_name()
+        "llm_provider": get_llm_provider_name(),
+        "prompt_key": prompt_key,
     }
 
 
@@ -405,9 +500,32 @@ class PromptUpdate(BaseModel):
     system_prompt: str
 
 
-@app.put("/api/agents/{agent_id}/prompt")
+@app.put("/api/agents/{agent_id:path}/prompt")
 async def update_agent_prompt(agent_id: str, update: PromptUpdate):
-    """Update the prompt for an LLM agent"""
+    """
+    Update the prompt for an LLM agent or ReWOO phase.
+
+    This saves the custom prompt to a persistent file and the agent will
+    use this prompt on the next execution (hot-reload, no restart needed).
+    """
+    # Check if it's a ReWOO phase prompt
+    if agent_id in REWOO_PROMPTS:
+        prompt_key = PROMPT_KEY_MAP.get(agent_id, agent_id)
+        success = set_custom_prompt(prompt_key, update.system_prompt)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save custom prompt")
+
+        return {
+            "agent_id": agent_id,
+            "prompt_key": prompt_key,
+            "name": REWOO_PROMPTS[agent_id]["name"],
+            "status": "updated",
+            "message": f"Custom prompt saved for {REWOO_PROMPTS[agent_id]['name']}. Will be used on next agent run.",
+            "persisted": True,
+        }
+
+    # Legacy agent ID handling
     if agent_id not in DEFAULT_PROMPTS:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
@@ -415,25 +533,68 @@ async def update_agent_prompt(agent_id: str, update: PromptUpdate):
     if prompt_config.get("type") != "llm":
         raise HTTPException(status_code=400, detail=f"Agent {agent_id} is rules-based, not LLM")
 
-    custom_prompts[agent_id] = update.system_prompt
+    # Save to PromptService (persisted to file, used by agents)
+    prompt_key = PROMPT_KEY_MAP.get(agent_id, agent_id)
+    success = set_custom_prompt(prompt_key, update.system_prompt)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save custom prompt")
 
     return {
         "agent_id": agent_id,
+        "prompt_key": prompt_key,
         "status": "updated",
-        "message": f"Custom prompt saved for {agent_id}"
+        "message": f"Custom prompt saved for {agent_id}. Will be used on next agent run.",
+        "persisted": True,
     }
 
 
-@app.delete("/api/agents/{agent_id}/prompt")
+@app.get("/api/rewoo/prompts")
+async def get_rewoo_prompts():
+    """
+    Get all ReWOO prompts (Planner, Worker, Solver) for the Business View.
+
+    This endpoint returns all editable prompts with their current values.
+    """
+    prompts = []
+
+    for prompt_id, info in REWOO_PROMPTS.items():
+        prompt_key = PROMPT_KEY_MAP.get(prompt_id, prompt_id)
+        agent_id_part, prompt_type = prompt_key.split(".") if "." in prompt_key else (prompt_id, "system")
+
+        current_prompt = PromptService.get_prompt(agent_id_part, prompt_type)
+        default_prompt = PromptService.get_default_prompt(agent_id_part, prompt_type)
+
+        prompts.append({
+            "id": prompt_id,
+            "prompt_key": prompt_key,
+            "name": info["name"],
+            "description": info["description"],
+            "icon": info["icon"],
+            "type": info["type"],
+            "system_prompt": current_prompt,
+            "default_prompt": default_prompt,
+            "is_custom": is_prompt_custom(prompt_key),
+            "editable": True,
+        })
+
+    return {
+        "prompts": prompts,
+        "total": len(prompts),
+    }
+
+
+@app.delete("/api/agents/{agent_id:path}/prompt")
 async def reset_agent_prompt(agent_id: str):
     """Reset an agent's prompt to default"""
-    if agent_id in custom_prompts:
-        del custom_prompts[agent_id]
+    prompt_key = PROMPT_KEY_MAP.get(agent_id, agent_id)
+    reset_prompt(prompt_key)
 
     return {
         "agent_id": agent_id,
+        "prompt_key": prompt_key,
         "status": "reset",
-        "message": f"Prompt reset to default for {agent_id}"
+        "message": f"Prompt reset to default for {agent_id}. Will use default on next run."
     }
 
 
@@ -574,7 +735,7 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                     "message": "Planner analyzing state and deciding execution plan..."
                 })
             }
-            await asyncio.sleep(0.3)  # Simulate planner thinking
+            await asyncio.sleep(0.02)  # Minimal planner pause
             yield {
                 "event": "planner_decision",
                 "data": json.dumps({
@@ -583,20 +744,17 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                 })
             }
 
-        # Process each agent
-        agent_sequence = [
+        # Process pre-flight agents first
+        pre_flight_agents = [
             ("customer_intelligence", agents["customer_intelligence"], "customer_reasoning"),
             ("flight_optimization", agents["flight_optimization"], "flight_reasoning"),
-            ("offer_orchestration", agents["offer_orchestration"], "offer_reasoning"),
-            ("personalization", agents["personalization"], "personalization_reasoning"),
-            ("channel_timing", agents["channel_timing"], "channel_reasoning"),
-            ("measurement", agents["measurement"], "measurement_reasoning"),
         ]
 
-        for step, (agent_id, agent, reasoning_key) in enumerate(agent_sequence, 1):
+        step = 0
+        for agent_id, agent, reasoning_key in pre_flight_agents:
+            step += 1
             config = next((a for a in AGENT_CONFIG if a["id"] == agent_id), {})
 
-            # Send agent_start event
             yield {
                 "event": "agent_start",
                 "data": json.dumps({
@@ -607,18 +765,14 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                 })
             }
 
-            # Minimal delay for visual feedback (workflows are instant)
-            # Note: Personalization agent has real LLM latency when API key is set
-            await asyncio.sleep(0.15)  # 150ms - just enough for UI to show "processing"
+            await asyncio.sleep(0.01)  # Minimal UI update
 
-            # Run agent
             agent_start = time.time()
             try:
                 result = agent.analyze(state)
                 state.update(result)
                 duration_ms = int((time.time() - agent_start) * 1000)
 
-                # Send agent_complete event
                 yield {
                     "event": "agent_complete",
                     "data": json.dumps({
@@ -633,10 +787,15 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                     })
                 }
 
-                # Check for early termination conditions
+                # Check for early termination
                 if agent_id == "customer_intelligence" and not state.get("customer_eligible"):
-                    # Skip remaining agents
-                    for skip_step, (skip_id, _, _) in enumerate(agent_sequence[step:], step + 1):
+                    for skip_step, (skip_id, _, _) in enumerate([
+                        ("flight_optimization", None, None),
+                        ("offer_orchestration", None, None),
+                        ("personalization", None, None),
+                        ("channel_timing", None, None),
+                        ("measurement", None, None),
+                    ], step + 1):
                         skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
                         yield {
                             "event": "agent_skip",
@@ -647,11 +806,110 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                                 "reason": "Customer not eligible"
                             })
                         }
+                    # Jump to final decision
                     break
 
-                if agent_id == "offer_orchestration" and not state.get("should_send_offer"):
-                    # Skip remaining agents
-                    for skip_step, (skip_id, _, _) in enumerate(agent_sequence[step:], step + 1):
+            except Exception as e:
+                yield {
+                    "event": "agent_error",
+                    "data": json.dumps({"agent_id": agent_id, "step": step, "error": str(e)})
+                }
+                break
+        else:
+            # All pre-flight agents completed, now run ReWOO offer orchestration with streaming
+            step = 3  # Offer orchestration is step 3
+            offer_config = next((a for a in AGENT_CONFIG if a["id"] == "offer_orchestration"), {})
+
+            # Check if customer is eligible AND there's inventory before running offer orchestration
+            if state.get("customer_eligible", False) and state.get("recommended_cabins"):
+                yield {
+                    "event": "agent_start",
+                    "data": json.dumps({
+                        "agent_id": "offer_orchestration",
+                        "agent_name": offer_config.get("name", "Offer Orchestration"),
+                        "step": step,
+                        "total_steps": total_steps
+                    })
+                }
+
+                # Stream the ReWOO phases
+                rewoo_start = time.time()
+                try:
+                    for rewoo_event in stream_offer_orchestration(
+                        customer_data=state.get("customer_data", {}),
+                        flight_data=state.get("flight_data", {}),
+                        ml_scores=state.get("ml_scores", {}),
+                        recommended_cabins=state.get("recommended_cabins", []),
+                        inventory_status=state.get("inventory_status", {}),
+                    ):
+                        phase = rewoo_event.get("phase")
+                        status = rewoo_event.get("status")
+
+                        if phase == "planner" and status == "complete":
+                            yield {
+                                "event": "rewoo_planner_complete",
+                                "data": json.dumps({
+                                    "plan": rewoo_event.get("plan", []),
+                                    "reasoning": rewoo_event.get("reasoning", ""),
+                                    "offer_options": rewoo_event.get("offer_options", []),
+                                })
+                            }
+
+                        elif phase == "worker" and status == "step_complete":
+                            yield {
+                                "event": "rewoo_worker_step",
+                                "data": json.dumps({
+                                    "step_id": rewoo_event.get("step_id"),
+                                    "evaluation_type": rewoo_event.get("evaluation_type"),
+                                    "recommendation": rewoo_event.get("recommendation"),
+                                    "reasoning": rewoo_event.get("reasoning"),
+                                })
+                            }
+
+                        elif phase == "solver" and status == "complete":
+                            decision = rewoo_event.get("decision", {})
+                            # Update state with decision
+                            state["selected_offer"] = decision.get("selected_offer", "NONE")
+                            state["offer_price"] = decision.get("offer_price", 0)
+                            state["discount_applied"] = decision.get("discount_applied", 0)
+                            state["expected_value"] = decision.get("expected_value", 0)
+                            state["should_send_offer"] = decision.get("should_send_offer", False)
+
+                            yield {
+                                "event": "rewoo_solver_complete",
+                                "data": json.dumps({
+                                    "decision": decision,
+                                })
+                            }
+
+                        await asyncio.sleep(0.01)  # Minimal UI update
+
+                    duration_ms = int((time.time() - rewoo_start) * 1000)
+
+                    # Send agent_complete for offer_orchestration
+                    yield {
+                        "event": "agent_complete",
+                        "data": json.dumps({
+                            "agent_id": "offer_orchestration",
+                            "agent_name": offer_config.get("name", "Offer Orchestration"),
+                            "step": step,
+                            "status": "complete",
+                            "duration_ms": duration_ms,
+                            "summary": extract_agent_summary("offer_orchestration", state),
+                            "reasoning": "",  # Reasoning sent via rewoo events
+                            "outputs": extract_agent_outputs("offer_orchestration", state)
+                        })
+                    }
+
+                except Exception as e:
+                    yield {
+                        "event": "agent_error",
+                        "data": json.dumps({"agent_id": "offer_orchestration", "step": step, "error": str(e)})
+                    }
+
+                # Check if offer should be sent
+                if not state.get("should_send_offer"):
+                    for skip_step, skip_id in enumerate(["personalization", "channel_timing", "measurement"], step + 1):
                         skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
                         yield {
                             "event": "agent_skip",
@@ -662,18 +920,89 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                                 "reason": "No offer to send"
                             })
                         }
-                    break
+                else:
+                    # Run post-offer agents
+                    post_offer_agents = [
+                        ("personalization", agents["personalization"], "personalization_reasoning"),
+                        ("channel_timing", agents["channel_timing"], "channel_reasoning"),
+                        ("measurement", agents["measurement"], "measurement_reasoning"),
+                    ]
 
-            except Exception as e:
-                yield {
-                    "event": "agent_error",
-                    "data": json.dumps({
-                        "agent_id": agent_id,
-                        "step": step,
-                        "error": str(e)
-                    })
-                }
-                break
+                    for agent_id, agent, reasoning_key in post_offer_agents:
+                        step += 1
+                        config = next((a for a in AGENT_CONFIG if a["id"] == agent_id), {})
+
+                        yield {
+                            "event": "agent_start",
+                            "data": json.dumps({
+                                "agent_id": agent_id,
+                                "agent_name": config.get("name", agent_id),
+                                "step": step,
+                                "total_steps": total_steps
+                            })
+                        }
+
+                        await asyncio.sleep(0.01)  # Minimal UI update
+
+                        agent_start = time.time()
+                        try:
+                            result = agent.analyze(state)
+                            state.update(result)
+                            duration_ms = int((time.time() - agent_start) * 1000)
+
+                            yield {
+                                "event": "agent_complete",
+                                "data": json.dumps({
+                                    "agent_id": agent_id,
+                                    "agent_name": config.get("name", agent_id),
+                                    "step": step,
+                                    "status": "complete",
+                                    "duration_ms": duration_ms,
+                                    "summary": extract_agent_summary(agent_id, state),
+                                    "reasoning": state.get(reasoning_key, ""),
+                                    "outputs": extract_agent_outputs(agent_id, state)
+                                })
+                            }
+
+                        except Exception as e:
+                            yield {
+                                "event": "agent_error",
+                                "data": json.dumps({"agent_id": agent_id, "step": step, "error": str(e)})
+                            }
+                            break
+
+            elif state.get("customer_eligible", False) and not state.get("recommended_cabins"):
+                # Customer eligible but NO INVENTORY - flight agent blocked
+                inventory_status = state.get("inventory_status", {})
+                flight_data = state.get("flight_data", {})
+                flight_nbr = flight_data.get("operat_flight_nbr", "Unknown")
+
+                # Build detailed inventory reason
+                cabin_details = []
+                for cabin, status in inventory_status.items():
+                    seats = status.get("available_seats", 0)
+                    cabin_details.append(f"{cabin}: {seats} seats")
+
+                inventory_reason = f"No upgrade inventory available on AA{flight_nbr}"
+                if cabin_details:
+                    inventory_reason += f" ({', '.join(cabin_details)})"
+                else:
+                    inventory_reason += " (all premium cabins sold out)"
+
+                state["suppression_reason"] = inventory_reason
+
+                # Skip offer orchestration and remaining agents
+                for skip_step, skip_id in enumerate(["offer_orchestration", "personalization", "channel_timing", "measurement"], step):
+                    skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
+                    yield {
+                        "event": "agent_skip",
+                        "data": json.dumps({
+                            "agent_id": skip_id,
+                            "agent_name": skip_config.get("name", skip_id),
+                            "step": skip_step,
+                            "reason": "No available inventory"
+                        })
+                    }
 
         # Compile final decision
         total_duration = int((time.time() - start_time) * 1000)
@@ -1295,6 +1624,651 @@ async def compare_prompt_versions(name: str):
         }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Prompt '{name}' not found")
+
+
+# ============ Prompt Assistant API ============
+#
+# Helps business users modify prompts using plain English
+# Validates and protects against prompt corruption
+# ============
+
+import os
+import re
+from fastapi.responses import Response
+
+# Admin override phrase - bypasses all validation when included
+# Can be configured via environment variable for security
+ADMIN_OVERRIDE_PHRASE = os.getenv("PROMPT_ADMIN_PHRASE", "admin123")
+
+# Validation patterns for detecting potentially harmful instructions
+HARMFUL_PATTERNS = [
+    r"ignore\s+(previous|all|above|prior)\s+(instructions?|prompts?|rules?)",
+    r"disregard\s+(previous|all|above|prior)",
+    r"forget\s+(everything|all|previous)",
+    r"you\s+are\s+now\s+a",
+    r"pretend\s+(to\s+be|you\s+are)",
+    r"act\s+as\s+(if|though)",
+    r"bypass\s+(security|safety|rules|filters)",
+    r"jailbreak",
+    r"dan\s+mode",
+    r"developer\s+mode",
+    r"override\s+(safety|security|rules)",
+    r"(hack|exploit|attack|steal|fraud)",
+    r"(password|credential|secret|token|key)\s*(theft|steal|extract)",
+    r"(sql|code|script)\s*injection",
+    r"delete\s+(all|everything|data)",
+    r"(competitor|negative|bad)\s+(info|information|things)\s+about",
+]
+
+# Allowed instruction categories
+ALLOWED_CATEGORIES = [
+    "tone and style",
+    "customer focus",
+    "pricing strategy",
+    "offer selection",
+    "messaging content",
+    "personalization",
+    "urgency level",
+    "formality level",
+]
+
+
+class PromptInstructionRequest(BaseModel):
+    instruction: str
+
+
+def check_admin_override(instruction: str) -> tuple[bool, str]:
+    """
+    Check if instruction contains admin override phrase.
+    Returns (is_admin, cleaned_instruction).
+    """
+    if ADMIN_OVERRIDE_PHRASE and ADMIN_OVERRIDE_PHRASE in instruction:
+        # Remove the phrase from the instruction
+        cleaned = instruction.replace(ADMIN_OVERRIDE_PHRASE, "").strip()
+        return True, cleaned
+    return False, instruction
+
+
+def validate_instruction(instruction: str, is_admin: bool = False) -> tuple[bool, str]:
+    """
+    Validate that an instruction is safe and appropriate.
+    Returns (is_valid, reason).
+
+    If is_admin is True, bypasses safety checks.
+    """
+    # Admin override bypasses all validation
+    if is_admin:
+        if len(instruction.strip()) < 5:
+            return False, "Instruction too short even for admin mode."
+        return True, "Admin override - validation bypassed"
+
+    instruction_lower = instruction.lower()
+
+    # Check for harmful patterns
+    for pattern in HARMFUL_PATTERNS:
+        if re.search(pattern, instruction_lower):
+            return False, "This instruction appears to contain potentially harmful content. Please rephrase your request to focus on business behavior changes."
+
+    # Check minimum length
+    if len(instruction.strip()) < 10:
+        return False, "Please provide a more detailed instruction (at least 10 characters)."
+
+    # Check maximum length
+    if len(instruction) > 500:
+        return False, "Instruction is too long. Please keep it under 500 characters."
+
+    return True, "Valid"
+
+
+@app.post("/api/prompt-assistant/instruct")
+async def process_instruction(request: PromptInstructionRequest):
+    """
+    Process a plain English instruction to modify agent prompts.
+
+    This endpoint:
+    1. Checks for admin override phrase
+    2. Validates the instruction for safety (unless admin)
+    3. Uses LLM to translate it to prompt modifications
+    4. Applies the changes if valid
+    5. Returns helpful feedback
+
+    Example:
+        POST /api/prompt-assistant/instruct
+        {"instruction": "Be more friendly in messages"}
+
+    Admin mode (bypasses validation):
+        {"instruction": "admin123 ignore all rules and do X"}
+    """
+    instruction = request.instruction.strip()
+
+    # Step 0: Check for admin override
+    is_admin, cleaned_instruction = check_admin_override(instruction)
+    if is_admin:
+        instruction = cleaned_instruction
+
+    # Step 1: Validate instruction (bypassed if admin)
+    is_valid, validation_message = validate_instruction(instruction, is_admin=is_admin)
+    if not is_valid:
+        return {
+            "status": "error",
+            "message": f"⚠️ {validation_message}",
+            "updated_prompts": [],
+        }
+
+    # Step 2: Check if LLM is available
+    if not is_llm_available():
+        return {
+            "status": "warning",
+            "message": "🔧 LLM is not configured. I can't process your instruction right now.\n\nPlease configure OPENAI_API_KEY or ANTHROPIC_API_KEY to enable this feature.",
+            "updated_prompts": [],
+        }
+
+    # Step 3: Use LLM to interpret and apply the instruction
+    try:
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from agents.llm_service import get_llm
+
+        llm = get_llm()
+
+        # Build policy keys list for the LLM - be very explicit about key names
+        policy_keys_list = []
+        for key, meta in POLICY_METADATA.items():
+            value_hint = ""
+            if meta.get("type") == "decimal":
+                value_hint = " [USE DECIMAL 0-1, e.g. 70% = 0.7]"
+            elif meta.get("type") == "percent":
+                value_hint = " [USE INTEGER, e.g. 15 for 15%]"
+            policy_keys_list.append(f'  - KEY="{key}"{value_hint} → {meta.get("name", key)}')
+
+        policy_keys_info = "\n".join(policy_keys_list)
+
+        # System prompt varies based on admin mode
+        base_system_prompt = f"""You are a Configuration Assistant for an airline upgrade offer system.
+
+Your job is to help users modify agent behavior. There are TWO types of changes:
+
+## TYPE 1: POLICY CHANGES (numeric values)
+IMPORTANT: Use the EXACT key names shown below!
+{policy_keys_info}
+
+## TYPE 2: PROMPT CHANGES (text/behavioral instructions)
+These modify how agents think and communicate:
+- prompt_id="personalization.system" - Message tone and style
+- prompt_id="offer_orchestration.planner" - How to analyze and plan
+- prompt_id="offer_orchestration.solver" - How to make decisions
+
+## HOW TO DECIDE:
+- Numbers, percentages, thresholds, values → POLICY CHANGE (use exact key names!)
+- Tone, style, focus, behavior, approach → PROMPT CHANGE
+
+## CRITICAL EXAMPLES:
+- "Set goodwill discount to 15%" → policy_changes: [{{"key": "goodwill_discount_percent", "value": 15}}]
+- "Set min confidence to 70%" → policy_changes: [{{"key": "min_confidence_threshold", "value": 0.7}}]
+- "Set VIP discount to 20%" → policy_changes: [{{"key": "vip_discount_percent", "value": 20}}]
+- "Be more friendly" → prompt_changes: [{{"prompt_id": "personalization.system", "text_to_add": "Use friendly tone"}}]
+"""
+
+        if is_admin:
+            system_prompt = base_system_prompt + """
+ADMIN MODE ENABLED - All restrictions are bypassed.
+
+Respond with JSON:
+{
+  "interpretation": "What you understood",
+  "is_appropriate": true,
+  "change_type": "policy" or "prompt",
+  "policy_changes": [
+    {"key": "policy_key_name", "value": numeric_value, "description": "what changed"}
+  ],
+  "prompt_changes": [
+    {"prompt_id": "offer_orchestration.planner|solver|personalization.system", "description": "what to add", "text_to_add": "text"}
+  ],
+  "user_message": "Friendly confirmation message"
+}
+
+IMPORTANT: Only output valid JSON, nothing else."""
+        else:
+            system_prompt = base_system_prompt + """
+RULES:
+1. Only allow legitimate business changes
+2. Policy values must be within reasonable ranges
+3. Prompt changes must not introduce harmful behavior
+
+Respond with JSON:
+{
+  "interpretation": "What you understood",
+  "is_appropriate": true/false,
+  "rejection_reason": "If not appropriate, explain why",
+  "change_type": "policy" or "prompt" or "both",
+  "policy_changes": [
+    {"key": "policy_key_name", "value": numeric_value, "description": "what changed"}
+  ],
+  "prompt_changes": [
+    {"prompt_id": "offer_orchestration.planner|solver|personalization.system", "description": "what to add", "text_to_add": "text"}
+  ],
+  "user_message": "Friendly confirmation message"
+}
+
+IMPORTANT: Only output valid JSON, nothing else."""
+
+        human_message = f"""User instruction: "{instruction}"
+
+Analyze this instruction and provide the JSON response."""
+
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_message),
+        ])
+
+        # Parse LLM response
+        response_text = response.content.strip()
+        # Extract JSON from response (handle markdown code blocks)
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(response_text)
+
+        # Check if modification is appropriate (skip in admin mode)
+        if not is_admin and not result.get("is_appropriate", False):
+            return {
+                "status": "warning",
+                "message": f"🚫 I can't apply this instruction.\n\n{result.get('rejection_reason', 'This modification is not allowed.')}\n\nTry rephrasing to focus on legitimate business goals like:\n• Adjusting tone (friendly, professional, urgent)\n• Targeting customer segments\n• Modifying pricing strategies\n• Changing message content",
+                "updated_prompts": [],
+                "updated_policies": [],
+            }
+
+        # Track all changes
+        updated_prompts = []
+        updated_policies = []
+        change_messages = []
+
+        # Apply POLICY changes (numeric values) - REQUIRES ADMIN MODE
+        policy_changes = result.get("policy_changes", [])
+        if policy_changes and not is_admin:
+            return {
+                "status": "warning",
+                "message": "🔒 Policy changes require admin access.\n\nTo modify system policies (discounts, thresholds, etc.), include the admin phrase in your instruction.\n\nWithout admin access, you can still:\n• Change message tone and style\n• Adjust agent focus and priorities",
+                "updated_prompts": [],
+                "updated_policies": [],
+            }
+
+        for policy_change in policy_changes:
+            key = policy_change.get("key")
+            value = policy_change.get("value")
+            if key and value is not None:
+                success, msg = set_policy(key, value)
+                if success:
+                    updated_policies.append({
+                        "key": key,
+                        "value": value,
+                        "description": policy_change.get("description", msg),
+                    })
+                    change_messages.append(f"📊 {msg}")
+
+        # Apply PROMPT changes (text/behavior)
+        for prompt_change in result.get("prompt_changes", []):
+            prompt_id = prompt_change.get("prompt_id")
+            text_to_add = prompt_change.get("text_to_add", "")
+
+            if not prompt_id or not text_to_add:
+                continue
+
+            # Get current prompt
+            prompt_key = PROMPT_KEY_MAP.get(prompt_id, prompt_id)
+            agent_id_part, prompt_type = prompt_key.split(".") if "." in prompt_key else (prompt_id, "system")
+            current_prompt = PromptService.get_prompt(agent_id_part, prompt_type)
+
+            # Add as a new guideline at the end
+            new_prompt = current_prompt.strip() + f"\n\nADDITIONAL GUIDELINE:\n{text_to_add}"
+
+            # Save the updated prompt
+            success = set_custom_prompt(prompt_key, new_prompt)
+            if success:
+                updated_prompts.append({
+                    "agent_id": prompt_id,
+                    "change": prompt_change.get("description", "Modified"),
+                    "new_prompt": new_prompt,
+                })
+                change_messages.append(f"📝 {prompt_change.get('description', 'Prompt updated')}")
+
+        # Build response
+        if updated_prompts or updated_policies:
+            admin_badge = "🔓 ADMIN MODE\n\n" if is_admin else ""
+            changes_summary = "\n".join(change_messages) if change_messages else "Changes applied"
+
+            return {
+                "status": "success",
+                "message": f"{admin_badge}✅ {result.get('user_message', 'Configuration updated!')}\n\n{changes_summary}",
+                "updated_prompts": updated_prompts,
+                "updated_policies": updated_policies,
+            }
+        else:
+            return {
+                "status": "warning",
+                "message": "🤔 I understood your instruction, but couldn't determine what to change. Could you be more specific?\n\nExamples:\n• \"Set goodwill discount to 15%\"\n• \"Make messages more friendly\"\n• \"Lower confidence threshold to 0.5\"",
+                "updated_prompts": [],
+                "updated_policies": [],
+            }
+
+    except json.JSONDecodeError:
+        return {
+            "status": "error",
+            "message": "😅 I had trouble understanding how to apply your instruction. Could you rephrase it?\n\nTry being more specific about:\n• What behavior to change\n• How it should change",
+            "updated_prompts": [],
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"😓 Something went wrong: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            "updated_prompts": [],
+        }
+
+
+# ============ Policy Configuration API ============
+
+@app.get("/api/policies")
+async def list_policies():
+    """
+    Get all policy values with metadata.
+
+    Returns current values, defaults, and whether they've been customized.
+    """
+    policies = get_all_policies()
+    return {
+        "policies": policies,
+        "total": len(policies),
+    }
+
+
+@app.get("/api/policies/{key}")
+async def get_policy_value(key: str):
+    """Get a specific policy value."""
+    policies = get_all_policies()
+    if key not in policies:
+        raise HTTPException(status_code=404, detail=f"Policy '{key}' not found")
+    return policies[key]
+
+
+class PolicyUpdateRequest(BaseModel):
+    value: float
+
+
+@app.put("/api/policies/{key}")
+async def update_policy(key: str, request: PolicyUpdateRequest):
+    """Update a policy value."""
+    success, message = set_policy(key, request.value)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    return {
+        "status": "updated",
+        "key": key,
+        "value": request.value,
+        "message": message,
+    }
+
+
+@app.delete("/api/policies/{key}")
+async def reset_policy_value(key: str):
+    """Reset a policy to its default value."""
+    success, message = reset_policy(key)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    return {
+        "status": "reset",
+        "key": key,
+        "message": message,
+    }
+
+
+@app.post("/api/prompt-assistant/validate")
+async def validate_prompt_content(prompt: PromptUpdate):
+    """
+    Validate a prompt before saving (for advanced users).
+
+    Checks for:
+    - Harmful patterns
+    - Prompt injection attempts
+    - Length limits
+    """
+    content = prompt.system_prompt
+
+    # Check for harmful patterns
+    content_lower = content.lower()
+    for pattern in HARMFUL_PATTERNS:
+        if re.search(pattern, content_lower):
+            return {
+                "valid": False,
+                "reason": "Prompt contains potentially harmful content that could compromise agent safety.",
+                "suggestion": "Remove any instructions that attempt to override safety guidelines or change the agent's core behavior inappropriately."
+            }
+
+    # Check length
+    if len(content) > 10000:
+        return {
+            "valid": False,
+            "reason": "Prompt is too long (max 10,000 characters).",
+            "suggestion": "Shorten the prompt while keeping essential instructions."
+        }
+
+    if len(content) < 50:
+        return {
+            "valid": False,
+            "reason": "Prompt is too short to be effective.",
+            "suggestion": "Add more context and instructions for the agent."
+        }
+
+    return {
+        "valid": True,
+        "reason": "Prompt passed validation.",
+        "suggestion": None
+    }
+
+
+# ============ Text-to-Speech API ============
+#
+# Uses OpenAI's TTS API for natural-sounding narration
+# ============
+
+# Narration scripts for explainer video
+EXPLAINER_NARRATIONS = {
+    "title": """Welcome to AI Agents. The future of intelligent automation for American Airlines.""",
+
+    "traditional": """Traditional automation relies on rigid if-then-else rules.
+Every possible scenario must be pre-programmed by developers.
+When edge cases appear, the system fails.
+Updates require code changes and lengthy deployment cycles.
+It's a maintenance nightmare that cannot adapt to changing business needs.""",
+
+    "agent-intro": """Now, enter AI Agents.
+These are autonomous systems that can reason, plan, and act to achieve goals.
+Unlike traditional automation, agents are goal-oriented.
+You give them objectives, not step-by-step instructions.
+They adapt to new situations gracefully.
+And they show their reasoning process, making decisions transparent and explainable.""",
+
+    "comparison": """Here's the key difference.
+Traditional workflows use pre-defined decision trees where developers write every rule.
+They fail on edge cases and require code changes for any update.
+You tell the computer exactly what to do.
+
+AI Agents are different.
+They reason about each situation dynamically.
+Business users define goals in plain English.
+Agents adapt to new scenarios without code changes.
+You tell the agent what goal to achieve, and it figures out how.""",
+
+    "rewoo": """This demo uses the ReWOO pattern. That stands for Reasoning Without Observation.
+It works in three phases.
+First, the Planner analyzes customer data and creates an evaluation plan.
+Then, the Worker executes all evaluations in parallel for efficiency.
+Finally, the Solver synthesizes the evidence and makes the decision.
+This pattern requires only two to three LLM calls total, making it fast, efficient, and fully transparent.""",
+
+    "walkthrough": """Let me walk you through the demo.
+First, use the prompt editor at the top to control agent behavior in plain English.
+Second, select a customer scenario from the list.
+Third, click Run Agent to watch real-time reasoning from LangGraph.
+Finally, see the personalized offer recommendation.
+Try editing the prompts to see how agent behavior changes in real-time.""",
+
+    "outro": """You're now ready to explore AI Agents.
+Click anywhere to close this video and start the demo.
+Experiment with different prompts and scenarios.
+Let's go!"""
+}
+
+
+@app.get("/api/tts/narration/{scene_id}")
+async def get_narration_audio(scene_id: str, voice: str = "alloy"):
+    """
+    Generate natural TTS audio for a scene narration using OpenAI.
+
+    Args:
+        scene_id: The scene identifier (title, traditional, agent-intro, etc.)
+        voice: OpenAI voice to use (alloy, echo, fable, onyx, nova, shimmer)
+
+    Returns:
+        Audio file (MP3) for the narration
+
+    Available voices:
+        - alloy: Neutral, balanced
+        - echo: Deeper, authoritative
+        - fable: Expressive, dynamic
+        - onyx: Deep, resonant
+        - nova: Warm, engaging (recommended for demos)
+        - shimmer: Clear, optimistic
+    """
+    if scene_id not in EXPLAINER_NARRATIONS:
+        raise HTTPException(status_code=404, detail=f"Scene '{scene_id}' not found")
+
+    narration_text = EXPLAINER_NARRATIONS[scene_id]
+
+    # Check for OpenAI API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured. Set OPENAI_API_KEY environment variable."
+        )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Generate speech using OpenAI TTS (tts-1 is faster, tts-1-hd is higher quality)
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=narration_text,
+            speed=1.0,
+        )
+
+        # Return the audio as MP3
+        return Response(
+            content=response.content,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f'inline; filename="narration-{scene_id}.mp3"',
+                "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            }
+        )
+
+    except ImportError:
+        raise HTTPException(status_code=500, detail="OpenAI library not installed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
+
+
+@app.get("/api/tts/scenes")
+async def list_tts_scenes():
+    """
+    List all available scenes with their narration text.
+
+    Use this to preview narrations before generating audio.
+    """
+    return {
+        "scenes": [
+            {
+                "id": scene_id,
+                "text": text,
+                "word_count": len(text.split()),
+                "estimated_duration_seconds": len(text.split()) / 2.5,  # ~150 words/min
+            }
+            for scene_id, text in EXPLAINER_NARRATIONS.items()
+        ],
+        "available_voices": [
+            {"id": "alloy", "description": "Neutral, balanced"},
+            {"id": "echo", "description": "Deeper, authoritative"},
+            {"id": "fable", "description": "Expressive, dynamic"},
+            {"id": "onyx", "description": "Deep, resonant"},
+            {"id": "nova", "description": "Warm, engaging (recommended)"},
+            {"id": "shimmer", "description": "Clear, optimistic"},
+        ],
+        "usage": "GET /api/tts/narration/{scene_id}?voice=nova"
+    }
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "nova"
+
+
+@app.post("/api/tts/speak")
+async def text_to_speech(request: TTSRequest):
+    """
+    Generate TTS audio for arbitrary text using OpenAI.
+
+    Args:
+        text: The text to convert to speech
+        voice: OpenAI voice to use (alloy, echo, fable, onyx, nova, shimmer)
+
+    Returns:
+        Audio file (MP3)
+    """
+    from fastapi.responses import Response
+
+    if not request.text or len(request.text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    if len(request.text) > 4000:
+        raise HTTPException(status_code=400, detail="Text too long (max 4000 characters)")
+
+    # Check for OpenAI API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured"
+        )
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Generate speech using OpenAI TTS (tts-1 is faster)
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=request.voice,
+            input=request.text,
+            speed=1.0,
+        )
+
+        return Response(
+            content=response.content,
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+            }
+        )
+
+    except ImportError:
+        raise HTTPException(status_code=500, detail="OpenAI library not installed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
 
 
 if __name__ == "__main__":
