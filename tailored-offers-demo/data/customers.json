@@ -245,7 +245,7 @@
     }
   },
   {
-    "_scenario": "PRICE TRADE-OFF - ML elasticity shows big P(buy) jump at discount",
+    "_scenario": "PRICE + DISRUPTION - Price sensitive AND had recent delay (demo: agent gap)",
     "lylty_acct_id": "3333333333",
     "party_id": "P003333333",
     "name_prefix": "Mr",
@@ -282,6 +282,16 @@
       "is_suppressed": false,
       "recent_complaint": false,
       "last_offer_date": "2025-12-15"
+    },
+    "recent_disruption": {
+      "had_disruption": true,
+      "disruption_date": "2026-01-25",
+      "disruption_type": "delay",
+      "delay_minutes": 180,
+      "flight_number": "AA1234",
+      "route": "DFW-ORD",
+      "compensation_offered": false,
+      "_note": "3-hour delay yesterday - agent should consider this before offering"
     },
     "historical_upgrades": {
       "offers_received": 8,

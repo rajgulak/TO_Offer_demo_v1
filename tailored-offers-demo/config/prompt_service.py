@@ -34,6 +34,7 @@ Available evaluation types:
 - RELATIONSHIP: Check if customer had recent service issues
 - PRICE_SENSITIVITY: Check if customer needs a discount
 - INVENTORY: Check which cabins need to be filled
+- RECENT_DISRUPTIONS: Check if customer had recent flight delays or cancellations
 
 Create a plan with numbered steps like E1, E2, E3. Each step should check ONE thing.
 Only include steps that are relevant for this specific customer.

@@ -124,6 +124,7 @@ Available evaluation types:
 - RELATIONSHIP: Check if customer had recent service issues
 - PRICE_SENSITIVITY: Check if customer needs a discount
 - INVENTORY: Check which cabins need to be filled
+- RECENT_DISRUPTIONS: Check if customer had recent delays or cancellations (only if instructed)
 
 Create a plan with numbered steps like E1, E2, E3. Each step should check ONE thing.
 Only include steps that are relevant for this specific customer.
@@ -474,6 +475,8 @@ def worker_node(state: ReWOOState) -> Dict[str, Any]:
         result = _evaluate_price_sensitivity(ml_scores)
     elif step.evaluation_type == "INVENTORY":
         result = _evaluate_inventory(offer_options)
+    elif step.evaluation_type == "RECENT_DISRUPTIONS":
+        result = _evaluate_recent_disruptions(customer)
     else:  # EV_COMPARISON or default
         result = _evaluate_ev(offer_options)
 
@@ -601,6 +604,70 @@ def _evaluate_relationship(customer: Dict) -> Dict[str, Any]:
             f"   • Customer: {customer_name} ({tier_names.get(tier, 'General')})\n"
             f"   • No recent service issues\n"
             f"   → No relationship-based adjustments needed"
+        )
+
+    return result
+
+
+def _evaluate_recent_disruptions(customer: Dict) -> Dict[str, Any]:
+    """Evaluate if customer had recent flight disruptions (delays, cancellations).
+
+    This is an OPTIONAL evaluation - only checked if explicitly instructed via prompt.
+    By default, the planner does NOT include this step, demonstrating how gaps can occur.
+    """
+    recent_disruption = customer.get("recent_disruption", {})
+    customer_name = f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip() or "Customer"
+    tier = customer.get("loyalty_tier", "N")
+    tier_names = {"E": "Executive Platinum", "T": "Platinum Pro", "P": "Platinum", "G": "Gold", "N": "General"}
+
+    result = {
+        "has_disruption": recent_disruption.get("had_disruption", False),
+        "disruption_type": recent_disruption.get("disruption_type"),
+        "delay_minutes": recent_disruption.get("delay_minutes", 0),
+        "disruption_date": recent_disruption.get("disruption_date"),
+        "flight_number": recent_disruption.get("flight_number"),
+        "route": recent_disruption.get("route"),
+        "compensation_offered": recent_disruption.get("compensation_offered", False),
+        "customer_name": customer_name,
+        "tier": tier_names.get(tier, "General"),
+        "goodwill_discount": 0,
+        "policy_applied": None,
+    }
+
+    if result["has_disruption"]:
+        delay_mins = result["delay_minutes"]
+
+        # Determine goodwill discount based on delay severity
+        if delay_mins >= 180:  # 3+ hours
+            goodwill_percent = get_live_policy("disruption_goodwill_percent", 20)
+            policy_id = "POL-DISRUPT-001"
+        elif delay_mins >= 60:  # 1-3 hours
+            goodwill_percent = get_live_policy("disruption_goodwill_percent", 15)
+            policy_id = "POL-DISRUPT-002"
+        else:
+            goodwill_percent = get_live_policy("disruption_goodwill_percent", 10)
+            policy_id = "POL-DISRUPT-003"
+
+        result["goodwill_discount"] = goodwill_percent / 100
+        result["policy_applied"] = policy_id
+        result["recommendation"] = "APPLY_DISRUPTION_GOODWILL"
+        result["reasoning"] = (
+            f"⚠️ RECENT DISRUPTION DETECTED:\n"
+            f"   • Customer: {customer_name} ({tier_names.get(tier, 'General')})\n"
+            f"   • Disruption: {delay_mins}-minute {result['disruption_type']} on {result['flight_number']}\n"
+            f"   • Route: {result['route']}\n"
+            f"   • Date: {result['disruption_date']}\n"
+            f"   • Previous Compensation: {'Yes' if result['compensation_offered'] else 'No'}\n"
+            f"   → Policy [{policy_id}] applies: {goodwill_percent}% goodwill discount\n"
+            f"   → DECISION: Apply disruption recovery discount to maintain relationship"
+        )
+    else:
+        result["recommendation"] = "NO_DISRUPTION_FOUND"
+        result["reasoning"] = (
+            f"✓ No recent disruptions:\n"
+            f"   • Customer: {customer_name}\n"
+            f"   • No delays or cancellations in recent history\n"
+            f"   → Proceed with standard offer"
         )
 
     return result
@@ -813,6 +880,16 @@ def solver_node(state: ReWOOState) -> Dict[str, Any]:
                 policies_applied.append(policy_id)
                 decision_factors.append(f"Goodwill recovery: {result.get('issue_type', 'service issue')}")
                 synthesis_parts.append(f"→ Applied [{policy_id}]: {goodwill:.0%} goodwill discount")
+
+        elif rec == "APPLY_DISRUPTION_GOODWILL":
+            disruption_discount = result.get("goodwill_discount", 0.15)
+            discount = max(discount, disruption_discount)
+            policy_id = result.get("policy_applied")
+            if policy_id:
+                policies_applied.append(policy_id)
+                delay_mins = result.get("delay_minutes", 0)
+                decision_factors.append(f"Disruption recovery: {delay_mins}min delay")
+                synthesis_parts.append(f"→ Applied [{policy_id}]: {disruption_discount:.0%} disruption goodwill discount")
 
         elif rec == "APPLY_DISCOUNT":
             price_disc = result.get("discount_percent", 0.15)

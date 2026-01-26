@@ -48,7 +48,10 @@
       "Bash(fi)",
       "Bash(docker-compose exec:*)",
       "Bash(__NEW_LINE_9b3507aec8df42ed__ echo \"\")",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(docker compose build:*)",
+      "Bash(docker compose:*)"
     ]
   }
 }

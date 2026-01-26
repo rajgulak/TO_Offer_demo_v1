@@ -145,7 +145,7 @@
     "checked_in": false
   },
   {
-    "_scenario": "TRADE-OFF: PRICE - Agent decides discount level based on ML elasticity",
+    "_scenario": "DEMO: AGENT GAP - Price sensitive + recent 3hr delay (show how to fix)",
     "pnr_loctr_id": "JKL789",
     "lylty_acct_id": "3333333333",
     "operat_flight_nbr": 2847,

@@ -11,6 +11,44 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// Types for dynamic narration data
+interface CustomerInfo {
+  name: string;
+  loyalty_tier: string;
+  flight_revenue_amt_history: number;
+  aadv_tenure_days?: number;
+}
+
+interface PlannerInfo {
+  reasoning: string;
+  plan: Array<{
+    step_id: string;
+    evaluation_type: string;
+    description: string;
+  }>;
+  offer_options: Array<{
+    offer_type: string;
+    cabin: string;
+  }>;
+}
+
+interface WorkerInfo {
+  evaluations: Array<{
+    type: string;
+    recommendation: string;
+    reasoning?: string;
+  }>;
+}
+
+interface SolverInfo {
+  selected_offer: string;
+  offer_price: number;
+  discount_applied: number;
+  expected_value: number;
+  reasoning: string;
+  confidence?: number;
+}
+
 interface GuidedDemoProps {
   onSelectCustomer: (pnr: string) => void;
   onRunAgent: () => void;
@@ -20,11 +58,17 @@ interface GuidedDemoProps {
   onOpenPromptAssistant: () => void;
   isAgentComplete: boolean;
   availablePNRs: string[];
+  // Dynamic data for contextual narration
+  customerInfo?: CustomerInfo;
+  plannerInfo?: PlannerInfo;
+  workerInfo?: WorkerInfo;
+  solverInfo?: SolverInfo;
 }
 
 interface DemoStep {
   id: string;
   narration: string;
+  dynamicNarration?: () => string;  // Function to generate dynamic narration
   action?: () => void;
   waitForAgent?: boolean;
   highlight?: string;
@@ -35,6 +79,17 @@ interface DemoStep {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Tier display names
+const TIER_NAMES: Record<string, string> = {
+  'E': 'Executive Platinum',
+  'C': 'Concierge Key',
+  'T': 'Platinum Pro',
+  'P': 'Platinum',
+  'G': 'Gold',
+  'R': 'AAdvantage',
+  'N': 'General',
+};
+
 export function GuidedDemo({
   onSelectCustomer,
   onRunAgent,
@@ -44,6 +99,10 @@ export function GuidedDemo({
   onOpenPromptAssistant,
   isAgentComplete,
   availablePNRs,
+  customerInfo,
+  plannerInfo,
+  workerInfo,
+  solverInfo,
 }: GuidedDemoProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -66,6 +125,106 @@ export function GuidedDemo({
   const currentStepRef = useRef(0);
   const cachingRef = useRef(false);
   const pauseResolveRef = useRef<(() => void) | null>(null);
+
+  // State for dynamic audio generation (shown in UI while generating)
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  // Suppress unused variable warning - used for future UI enhancement
+  void isGeneratingAudio;
+
+  // ===========================================
+  // DYNAMIC NARRATION GENERATORS
+  // ===========================================
+
+  // Generate planner narration based on actual customer and plan data
+  const generatePlannerNarration = useCallback((): string => {
+    if (!customerInfo || !plannerInfo) {
+      return "See this? The Planner figured out, what factors matter, for this specific customer. Loyalty status. Recent history. Current context. Just like a human expert would.";
+    }
+
+    const tierName = TIER_NAMES[customerInfo.loyalty_tier] || 'General';
+    const revenue = customerInfo.flight_revenue_amt_history?.toLocaleString() || '0';
+    const evalSteps = plannerInfo.plan.map(p => p.evaluation_type).join(', ');
+    const offerOptions = plannerInfo.offer_options.map(o => o.cabin).join(' and ');
+
+    return `Looking at ${customerInfo.name}, a ${tierName} member, with $${revenue} annual revenue. ` +
+      `Based on this profile, the Planner decides to evaluate: ${evalSteps}. ` +
+      `The offer options being considered are: ${offerOptions}.`;
+  }, [customerInfo, plannerInfo]);
+
+  // Generate worker narration based on actual evaluation results
+  const generateWorkerNarration = useCallback((): string => {
+    if (!workerInfo || workerInfo.evaluations.length === 0) {
+      return "Watch the Workers use MCP tools. Customer profile from AADV. Flight inventory from DCSID. ML scores from our models. The agent connects to existing systems, when it needs to.";
+    }
+
+    const parts: string[] = ["Worker executes each evaluation step via MCP tools."];
+
+    for (const eval_ of workerInfo.evaluations) {
+      if (eval_.type === 'CONFIDENCE' && eval_.recommendation) {
+        // Extract confidence info from recommendation
+        parts.push(`For confidence check: ${eval_.recommendation}.`);
+      } else if (eval_.type === 'PRICE_SENSITIVITY' && eval_.recommendation) {
+        parts.push(`For price sensitivity: ${eval_.recommendation}.`);
+      } else if (eval_.type === 'INVENTORY' && eval_.recommendation) {
+        parts.push(`For inventory: ${eval_.recommendation}.`);
+      } else if (eval_.recommendation) {
+        parts.push(`${eval_.type}: ${eval_.recommendation}.`);
+      }
+    }
+
+    return parts.join(' ');
+  }, [workerInfo]);
+
+  // Generate solver narration based on actual decision
+  const generateSolverNarration = useCallback((): string => {
+    if (!solverInfo || !solverInfo.selected_offer) {
+      return "Then, the Solver, reasons through all the evidence. Just like a human would reason it out. And you can read, exactly how it decided.";
+    }
+
+    const offer = solverInfo.selected_offer;
+    const price = solverInfo.offer_price;
+    const ev = solverInfo.expected_value?.toFixed(0) || '0';
+    const discount = solverInfo.discount_applied || 0;
+
+    if (offer === 'NONE' || !offer) {
+      return "The Solver analyzed all the evidence, and determined, no offer should be sent for this customer. " +
+        "You can see exactly why in the reasoning above.";
+    }
+
+    let narration = `The Solver weighs all the evidence. `;
+    narration += `${offer} upgrade has the highest expected value at $${ev}. `;
+
+    if (discount > 0) {
+      narration += `A ${discount}% discount is applied based on price sensitivity. `;
+    }
+
+    narration += `Final recommendation: ${offer} upgrade at $${price}. `;
+    narration += `This is exactly how a human expert would reason through the same data.`;
+
+    return narration;
+  }, [solverInfo]);
+
+  // Generate dynamic TTS audio on-the-fly
+  const generateDynamicAudio = useCallback(async (text: string): Promise<string | null> => {
+    try {
+      setIsGeneratingAudio(true);
+      const response = await fetch(`${API_BASE}/api/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: 'nova' }),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      }
+    } catch (error) {
+      console.log('Failed to generate dynamic audio:', error);
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+    return null;
+  }, []);
 
   // Keep refs in sync
   useEffect(() => {
@@ -175,6 +334,7 @@ export function GuidedDemo({
     {
       id: 'p1-planner',
       narration: "See this? The Planner figured out, what factors matter, for this specific customer. Loyalty status. Recent history. Current context. Just like a human expert would.",
+      dynamicNarration: generatePlannerNarration,
       scrollTo: '[data-tour="planner-section"]',
       highlight: '[data-tour="planner-section"]',
       pauseBefore: 500,
@@ -197,6 +357,7 @@ export function GuidedDemo({
     {
       id: 'p2-worker',
       narration: "Watch the Workers use MCP tools. Customer profile from AADV. Flight inventory from DCSID. ML scores from our models. The agent connects to existing systems, when it needs to.",
+      dynamicNarration: generateWorkerNarration,
       scrollTo: '[data-tour="worker-section"]',
       highlight: '[data-tour="worker-section"]',
       pauseBefore: 500,
@@ -205,6 +366,7 @@ export function GuidedDemo({
     {
       id: 'p2-solver',
       narration: "Then, the Solver, reasons through all the evidence. Just like a human would reason it out. And you can read, exactly how it decided.",
+      dynamicNarration: generateSolverNarration,
       scrollTo: '[data-tour="solver-section"]',
       highlight: '[data-tour="solver-section"]',
       pauseBefore: 500,
@@ -351,7 +513,7 @@ export function GuidedDemo({
       narration: "That's Agentic AI. Planning. Reasoning. Control. Thank you, for watching.",
       pauseAfter: 2000,
     },
-  ], [availablePNRs, onSelectCustomer, onRunAgent, onToggleHITL, onExpandControlPanel, onToggleAdvancedMode, onOpenPromptAssistant]);
+  ], [availablePNRs, onSelectCustomer, onRunAgent, onToggleHITL, onExpandControlPanel, onToggleAdvancedMode, onOpenPromptAssistant, generatePlannerNarration, generateWorkerNarration, generateSolverNarration]);
 
   // Pre-cache a single audio file - try static first, then generate
   const cacheAudio = useCallback(async (text: string, stepId: string): Promise<boolean> => {
@@ -525,8 +687,46 @@ export function GuidedDemo({
       return;
     }
 
-    // 6. Play narration
-    await playNarration(step.narration, step.id);
+    // 6. Play narration - check for dynamic narration first
+    let narrationText = step.narration;
+    let audioUrl: string | null = null;
+
+    if (step.dynamicNarration) {
+      // Generate dynamic narration based on actual data
+      narrationText = step.dynamicNarration();
+      setShowSubtitle(narrationText);
+
+      // Wait if paused before starting
+      if (isPausedRef.current) {
+        await waitWhilePaused();
+      }
+
+      // Generate audio on-the-fly for dynamic content
+      audioUrl = await generateDynamicAudio(narrationText);
+
+      if (audioUrl && audioRef.current) {
+        audioRef.current.src = audioUrl;
+        await new Promise<void>((resolve) => {
+          if (audioRef.current) {
+            audioRef.current.onended = () => resolve();
+            audioRef.current.onerror = () => resolve();
+            audioRef.current.play().catch(() => resolve());
+          } else {
+            resolve();
+          }
+        });
+        // Clean up the blob URL
+        URL.revokeObjectURL(audioUrl);
+      } else {
+        // Fallback: estimate reading time
+        const words = narrationText.split(' ').length;
+        const readingTime = Math.max(3000, words * 300);
+        await new Promise(r => setTimeout(r, readingTime));
+      }
+    } else {
+      // Use pre-cached static narration
+      await playNarration(step.narration, step.id);
+    }
     if (!isPlayingRef.current) return;
 
     // 7. Pause after
@@ -538,7 +738,7 @@ export function GuidedDemo({
     // 8. Clear and continue
     setShowSubtitle('');
     processStep(stepIndex + 1);
-  }, [getDemoSteps, playNarration, scrollToElement]);
+  }, [getDemoSteps, playNarration, scrollToElement, generateDynamicAudio, waitWhilePaused]);
 
   // Watch for agent completion
   useEffect(() => {

@@ -135,6 +135,26 @@ export default function BusinessAgentDemo() {
   // Guided demo state
   const [promptAssistantOpen, setPromptAssistantOpen] = useState(false);
 
+  // Dynamic data for GuidedDemo contextual narration
+  const [guidedDemoPlannerInfo, setGuidedDemoPlannerInfo] = useState<{
+    reasoning: string;
+    plan: Array<{ step_id: string; evaluation_type: string; description: string }>;
+    offer_options: Array<{ offer_type: string; cabin: string }>;
+  } | null>(null);
+
+  const [guidedDemoWorkerInfo, setGuidedDemoWorkerInfo] = useState<{
+    evaluations: Array<{ type: string; recommendation: string; reasoning?: string }>;
+  } | null>(null);
+
+  const [guidedDemoSolverInfo, setGuidedDemoSolverInfo] = useState<{
+    selected_offer: string;
+    offer_price: number;
+    discount_applied: number;
+    expected_value: number;
+    reasoning: string;
+    confidence?: number;
+  } | null>(null);
+
   // Progressive data reveal - sync with pipeline steps
   // Step 1: Flights, Step 2: PNRs, Step 3: Passengers (Customer), Step 4: ML Score, Step 5: Policy, Step 6: Decision
   const showFlightData = pipelineStep >= 1;
@@ -195,6 +215,10 @@ export default function BusinessAgentDemo() {
     setShowingDecision(false);
     setPipelineStep(0);
     setHitlPending(false);
+    // Reset guided demo data
+    setGuidedDemoPlannerInfo(null);
+    setGuidedDemoWorkerInfo(null);
+    setGuidedDemoSolverInfo(null);
     setPendingDecision(null);
     setPreFlightAgents([]);
     setRewooPlan([]);
@@ -214,6 +238,10 @@ export default function BusinessAgentDemo() {
     setShowingDecision(false);
     setPipelineStep(0);
     setHitlPending(false);
+    // Reset guided demo data
+    setGuidedDemoPlannerInfo(null);
+    setGuidedDemoWorkerInfo(null);
+    setGuidedDemoSolverInfo(null);
     setPendingDecision(null);
     setPreFlightAgents([]);
     setRewooPlan([]);
@@ -288,6 +316,23 @@ export default function BusinessAgentDemo() {
         }));
         setEvaluations(pendingEvals);
 
+        // Set guided demo planner info for dynamic narration
+        setGuidedDemoPlannerInfo({
+          reasoning: data.reasoning,
+          plan: data.plan.map((s: ReWOOPlanStep) => ({
+            step_id: s.step_id,
+            evaluation_type: s.evaluation_type,
+            description: s.description,
+          })),
+          offer_options: (data.offer_options || []).map((o: any) => ({
+            offer_type: o.offer_type || o.type || 'Unknown',
+            cabin: o.cabin || o.name || 'Unknown',
+          })),
+        });
+
+        // Initialize guided demo worker info
+        setGuidedDemoWorkerInfo({ evaluations: [] });
+
         // Transition to Worker phase
         setAgentPhase({ phase: 'worker' });
       },
@@ -304,6 +349,18 @@ export default function BusinessAgentDemo() {
               }
             : e
         ));
+
+        // Update guided demo worker info for dynamic narration
+        setGuidedDemoWorkerInfo(prev => ({
+          evaluations: [
+            ...(prev?.evaluations || []),
+            {
+              type: data.evaluation_type,
+              recommendation: data.recommendation || data.reasoning || '',
+              reasoning: data.reasoning,
+            },
+          ],
+        }));
       },
 
       // NEW: Handle ReWOO Solver completion
@@ -333,6 +390,15 @@ export default function BusinessAgentDemo() {
           policiesText +
           `\n   Expected Value: $${decision.expected_value?.toFixed(2)}`
         );
+
+        // Set guided demo solver info for dynamic narration
+        setGuidedDemoSolverInfo({
+          selected_offer: offerName,
+          offer_price: decision.offer_price || 0,
+          discount_applied: decision.discount_applied ? decision.discount_applied * 100 : 0,
+          expected_value: decision.expected_value || 0,
+          reasoning: decision.reasoning || '',
+        });
       },
 
       onAgentComplete: (data) => {
@@ -1438,6 +1504,16 @@ export default function BusinessAgentDemo() {
         onOpenPromptAssistant={() => setPromptAssistantOpen(true)}
         isAgentComplete={agentPhase.phase === 'complete' && !hitlPending}
         availablePNRs={pnrList.map(p => p.pnr)}
+        // Dynamic data for contextual narration
+        customerInfo={customer ? {
+          name: customer.name,
+          loyalty_tier: customer.loyalty_tier,
+          flight_revenue_amt_history: customer.flight_revenue_amt_history,
+          aadv_tenure_days: customer.aadv_tenure_days,
+        } : undefined}
+        plannerInfo={guidedDemoPlannerInfo || undefined}
+        workerInfo={guidedDemoWorkerInfo || undefined}
+        solverInfo={guidedDemoSolverInfo || undefined}
       />
     </div>
   );

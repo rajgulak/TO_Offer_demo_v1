@@ -296,7 +296,7 @@ def get_scenario_tag(pnr: str, customer: Dict, reservation: Dict) -> str:
         "LMN456": "Relationship Trade-off", # Agent trade-off: high value customer with recent issue
         "DEF321": "Guardrail: Inventory",  # Guardrail blocks: 0 seats available
         "GHI654": "Guardrail: Customer",   # Guardrail blocks: customer suppressed
-        "JKL789": "Price Trade-off",       # Agent trade-off: discount level decision
+        "JKL789": "⚠️ Recent Delay",       # Demo: Agent gap - customer had 3hr delay yesterday
     }
     return scenario_map.get(pnr, "Unknown")
 
