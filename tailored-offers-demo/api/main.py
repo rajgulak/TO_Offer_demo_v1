@@ -23,14 +23,28 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tools.data_tools import get_enriched_pnr, get_all_reservations, get_customer
 from agents.state import create_initial_state, OfferDecision
+
+# New architecture: Pre-checks (workflow) → Offer Agent (ReWOO) → Delivery (workflow)
+from agents.prechecks import (
+    check_customer_eligibility,
+    check_inventory_availability,
+    generate_precheck_reasoning,
+)
+from agents.delivery import (
+    generate_message,
+    select_channel,
+    setup_tracking,
+    generate_delivery_reasoning,
+)
+# ReWOO Pattern: Planner-Worker-Solver for Offer Agent
+from agents.offer_orchestration_rewoo import (
+    OfferOrchestrationReWOO as OfferAgent,
+    ORCHESTRATION_SYSTEM_PROMPT,
+    stream_offer_orchestration,
+)
+# Legacy imports for backward compatibility (keeping old agent classes available)
 from agents.customer_intelligence import CustomerIntelligenceAgent
 from agents.flight_optimization import FlightOptimizationAgent
-# ReWOO Pattern: Planner-Worker-Solver for Offer Orchestration
-from agents.offer_orchestration_rewoo import (
-    OfferOrchestrationReWOO as OfferOrchestrationAgent,
-    ORCHESTRATION_SYSTEM_PROMPT,
-    stream_offer_orchestration,  # New streaming function
-)
 from agents.personalization import PersonalizationAgent, PERSONALIZATION_SYSTEM_PROMPT
 from agents.channel_timing import ChannelTimingAgent
 from agents.measurement_learning import MeasurementLearningAgent
@@ -128,78 +142,97 @@ class EnrichedPNR(BaseModel):
     ml_scores: Optional[Dict[str, Any]] = None
 
 
-# ============ Agent Configuration ============
+# ============ Pipeline Configuration ============
+# New architecture: Pre-checks → Offer Agent → Delivery
 
+PIPELINE_CONFIG = {
+    "phases": [
+        {
+            "id": "prechecks",
+            "name": "Pre-flight Checks",
+            "short_name": "Checks",
+            "icon": "shield",
+            "description": "Validate eligibility and inventory before proceeding",
+            "type": "workflow",
+            "steps": ["eligibility", "inventory"]
+        },
+        {
+            "id": "offer_agent",
+            "name": "Offer Agent",
+            "short_name": "Agent",
+            "icon": "brain",
+            "description": "ReWOO agent that plans, evaluates, and decides",
+            "type": "agent",
+            "steps": ["planner", "worker", "solver"]
+        },
+        {
+            "id": "delivery",
+            "name": "Delivery",
+            "short_name": "Deliver",
+            "icon": "send",
+            "description": "Generate message, select channel, setup tracking",
+            "type": "workflow",
+            "steps": ["message", "channel", "tracking"]
+        }
+    ]
+}
+
+# Legacy AGENT_CONFIG for backward compatibility with existing frontend
 AGENT_CONFIG = [
     {
-        "id": "customer_intelligence",
-        "name": "Customer Intelligence",
-        "short_name": "Customer",
+        "id": "prechecks",
+        "name": "Pre-flight Checks",
+        "short_name": "Checks",
+        "icon": "shield",
+        "description": "Customer eligibility and inventory validation",
+        "reasoning_key": "precheck_reasoning",
+        "phase": "pre-decision",
+        "is_workflow": True
+    },
+    {
+        "id": "offer_agent",
+        "name": "Offer Agent",
+        "short_name": "Agent",
         "icon": "brain",
-        "description": "Analyzes customer eligibility and segmentation",
-        "reasoning_key": "customer_reasoning",
-        "phase": "decision"
-    },
-    {
-        "id": "flight_optimization",
-        "name": "Flight Optimization",
-        "short_name": "Flight",
-        "icon": "chart",
-        "description": "Evaluates cabin inventory and flight priority",
-        "reasoning_key": "flight_reasoning",
-        "phase": "decision"
-    },
-    {
-        "id": "offer_orchestration",
-        "name": "Offer Orchestration",
-        "short_name": "Offer",
-        "icon": "scale",
-        "description": "Selects optimal offer using expected value calculation",
+        "description": "ReWOO agent: Plans evaluations, executes, makes decision",
         "reasoning_key": "offer_reasoning",
-        "phase": "decision"
+        "phase": "decision",
+        "is_workflow": False
     },
     {
-        "id": "personalization",
-        "name": "Personalization",
-        "short_name": "Message",
-        "icon": "sparkles",
-        "description": "Generates personalized messaging with GenAI",
-        "reasoning_key": "personalization_reasoning",
-        "phase": "decision"
-    },
-    {
-        "id": "channel_timing",
-        "name": "Channel & Timing",
-        "short_name": "Channel",
-        "icon": "phone",
-        "description": "Optimizes delivery channel and send time",
-        "reasoning_key": "channel_reasoning",
-        "phase": "decision"
-    },
-    {
-        "id": "measurement",
-        "name": "Tracking Setup",
-        "short_name": "Track",
-        "icon": "tag",
-        "description": "Attaches A/B test group and tracking ID for ROI measurement",
-        "reasoning_key": "measurement_reasoning",
-        "phase": "post-decision"
+        "id": "delivery",
+        "name": "Delivery",
+        "short_name": "Deliver",
+        "icon": "send",
+        "description": "Message generation, channel selection, tracking setup",
+        "reasoning_key": "delivery_reasoning",
+        "phase": "post-decision",
+        "is_workflow": True
     }
 ]
 
-# Initialize agents
+# Initialize the Offer Agent (the only true agent)
+offer_agent = OfferAgent()
+
+# Legacy agent instances for backward compatibility
 agents = {
     "customer_intelligence": CustomerIntelligenceAgent(),
     "flight_optimization": FlightOptimizationAgent(),
-    "offer_orchestration": OfferOrchestrationAgent(),
+    "offer_orchestration": offer_agent,
+    "offer_agent": offer_agent,  # New name
     "personalization": PersonalizationAgent(),
     "channel_timing": ChannelTimingAgent(),
     "measurement": MeasurementLearningAgent()
 }
 
-# Default prompts for LLM agents (for display and editing)
+# Default prompts for LLM-based components
 DEFAULT_PROMPTS = {
-    "offer_orchestration": {
+    "offer_agent": {
+        "system_prompt": ORCHESTRATION_SYSTEM_PROMPT,
+        "type": "llm",
+        "description": "ReWOO agent for offer decision-making"
+    },
+    "offer_orchestration": {  # Legacy key
         "system_prompt": ORCHESTRATION_SYSTEM_PROMPT,
         "type": "llm",
         "description": "Strategic reasoning about which offer to select"
@@ -209,21 +242,13 @@ DEFAULT_PROMPTS = {
         "type": "llm",
         "description": "Generates personalized messaging for the offer"
     },
-    "customer_intelligence": {
-        "type": "rules",
-        "description": "Rules-based eligibility checks"
+    "prechecks": {
+        "type": "workflow",
+        "description": "Rules-based eligibility and inventory checks"
     },
-    "flight_optimization": {
-        "type": "rules",
-        "description": "Rules-based inventory analysis"
-    },
-    "channel_timing": {
-        "type": "rules",
-        "description": "Rules-based channel selection"
-    },
-    "measurement": {
-        "type": "rules",
-        "description": "Deterministic A/B assignment"
+    "delivery": {
+        "type": "workflow",
+        "description": "Message generation, channel selection, tracking"
     }
 }
 
@@ -302,8 +327,33 @@ def get_scenario_tag(pnr: str, customer: Dict, reservation: Dict) -> str:
 
 
 def extract_agent_summary(agent_id: str, state: Dict) -> str:
-    """Extract a short summary for an agent's result"""
-    if agent_id == "customer_intelligence":
+    """Extract a short summary for an agent's/phase's result"""
+    # New phase-based IDs
+    if agent_id == "prechecks":
+        eligible = state.get("customer_eligible", False)
+        has_inventory = bool(state.get("recommended_cabins"))
+        if not eligible:
+            return f"BLOCKED - {state.get('suppression_reason', 'not eligible')}"
+        if not has_inventory:
+            return "BLOCKED - no inventory"
+        return f"PASSED - {state.get('customer_segment', 'eligible')}, {len(state.get('recommended_cabins', []))} cabins"
+
+    elif agent_id in ["offer_agent", "offer_orchestration"]:
+        if state.get("should_send_offer"):
+            offer = state.get("selected_offer", "")
+            price = state.get("offer_price", 0)
+            ev = state.get("expected_value", 0)
+            return f"{offer} @ ${price:.0f} (EV: ${ev:.2f})"
+        return "NO OFFER - criteria not met"
+
+    elif agent_id == "delivery":
+        channel = state.get("selected_channel", "")
+        if channel:
+            return f"{channel.upper()} - ready to send"
+        return "Skipped - no offer"
+
+    # Legacy agent IDs for backward compatibility
+    elif agent_id == "customer_intelligence":
         if state.get("customer_eligible"):
             segment = state.get("customer_segment", "unknown")
             return f"ELIGIBLE - {segment}"
@@ -313,14 +363,6 @@ def extract_agent_summary(agent_id: str, state: Dict) -> str:
         priority = state.get("flight_priority", "unknown")
         cabins = state.get("recommended_cabins", [])
         return f"{priority.upper()} priority - {', '.join(cabins) if cabins else 'no cabins'}"
-
-    elif agent_id == "offer_orchestration":
-        if state.get("should_send_offer"):
-            offer = state.get("selected_offer", "")
-            price = state.get("offer_price", 0)
-            ev = state.get("expected_value", 0)
-            return f"{offer} @ ${price:.0f} (EV: ${ev:.2f})"
-        return "NO OFFER - criteria not met"
 
     elif agent_id == "personalization":
         tone = state.get("message_tone", "")
@@ -339,8 +381,36 @@ def extract_agent_summary(agent_id: str, state: Dict) -> str:
 
 
 def extract_agent_outputs(agent_id: str, state: Dict) -> Dict:
-    """Extract key outputs for an agent"""
-    if agent_id == "customer_intelligence":
+    """Extract key outputs for an agent/phase"""
+    # New phase-based IDs
+    if agent_id == "prechecks":
+        return {
+            "customer_eligible": state.get("customer_eligible"),
+            "customer_segment": state.get("customer_segment"),
+            "suppression_reason": state.get("suppression_reason"),
+            "recommended_cabins": state.get("recommended_cabins"),
+            "inventory_status": state.get("inventory_status")
+        }
+    elif agent_id in ["offer_agent", "offer_orchestration"]:
+        return {
+            "selected_offer": state.get("selected_offer"),
+            "offer_price": state.get("offer_price"),
+            "discount_applied": state.get("discount_applied"),
+            "expected_value": state.get("expected_value"),
+            "should_send_offer": state.get("should_send_offer"),
+            "fallback_offer": state.get("fallback_offer")
+        }
+    elif agent_id == "delivery":
+        return {
+            "message_subject": state.get("message_subject"),
+            "message_tone": state.get("message_tone"),
+            "selected_channel": state.get("selected_channel"),
+            "send_time": state.get("send_time"),
+            "experiment_group": state.get("experiment_group"),
+            "tracking_id": state.get("tracking_id")
+        }
+    # Legacy agent IDs for backward compatibility
+    elif agent_id == "customer_intelligence":
         return {
             "customer_eligible": state.get("customer_eligible"),
             "customer_segment": state.get("customer_segment"),
@@ -351,15 +421,6 @@ def extract_agent_outputs(agent_id: str, state: Dict) -> Dict:
             "flight_priority": state.get("flight_priority"),
             "recommended_cabins": state.get("recommended_cabins"),
             "inventory_status": state.get("inventory_status")
-        }
-    elif agent_id == "offer_orchestration":
-        return {
-            "selected_offer": state.get("selected_offer"),
-            "offer_price": state.get("offer_price"),
-            "discount_applied": state.get("discount_applied"),
-            "expected_value": state.get("expected_value"),
-            "should_send_offer": state.get("should_send_offer"),
-            "fallback_offer": state.get("fallback_offer")
         }
     elif agent_id == "personalization":
         return {

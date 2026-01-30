@@ -1,6 +1,6 @@
 # Tailored Offers - Agentic AI Demo
 
-A 6-step pipeline demonstrating **agentic AI** for American Airlines upgrade offers. Shows how AI agents add value beyond ML models alone.
+A 3-phase pipeline demonstrating **agentic AI** for American Airlines upgrade offers. Shows how a single AI agent (using the ReWOO pattern) adds value beyond ML models alone, supported by deterministic workflow steps.
 
 ## Quick Start
 
@@ -35,55 +35,58 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## Architecture: 1 Agent + 4 Workflows + 1 LLM Call
+## Architecture: 3-Phase Pipeline (1 Agent + 2 Workflows)
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              DECISION PIPELINE                               │
-│                                                                              │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────┐   ┌──────────┐   ┌────────┐ │
-│  │ Customer │ → │  Flight  │ → │    Offer     │ → │ Personal-│ → │Channel │ │
-│  │  Intel   │   │  Optim   │   │ Orchestration│   │ ization  │   │ Timing │ │
-│  │    ⚡    │   │    ⚡    │   │     🧠       │   │    ✨    │   │   ⚡   │ │
-│  │ WORKFLOW │   │ WORKFLOW │   │   AGENT      │   │LLM CALL  │   │WORKFLOW│ │
-│  └──────────┘   └──────────┘   └──────────────┘   └──────────┘   └────────┘ │
-│                                       │                                      │
-│                                       ▼                                      │
-│                              ┌──────────────┐                                │
-│                              │   Tracking   │  ← POST-DECISION               │
-│                              │    Setup     │    (A/B test + tracking ID)    │
-│                              │     🏷️      │                                │
-│                              └──────────────┘                                │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────┐     ┌─────────────────────────┐     ┌──────────────┐
+│  Pre-checks  │ ──► │      Offer Agent         │ ──► │   Delivery   │
+│  (Workflow)  │     │       (ReWOO)            │     │  (Workflow)  │
+├──────────────┤     ├─────────────────────────┤     ├──────────────┤
+│ • Customer   │     │ • Planner: picks evals  │     │ • Message    │
+│   Eligibility│     │ • Worker: runs evals    │     │   Generation │
+│ • Inventory  │     │ • Solver: makes decision│     │ • Channel    │
+│   Check      │     │                         │     │   Selection  │
+│              │     │   15+ factor decision   │     │ • Tracking   │
+│   ⚡ Rules   │     │   with audit trail      │     │   Setup      │
+└──────┬───────┘     └───────────┬─────────────┘     └──────┬───────┘
+       │                         │                          │
+       ▼                         ▼                          ▼
+   Gate: eligible?          Gate: offer?              Done: deliver
+   No → STOP               No → STOP                 offer to customer
 ```
 
-### How the Offer Agent and Channel Work Together (Plain English)
+### Why This Pattern?
 
-1. **Offer Agent's Job**: Figure out which upgrade offer to give each customer
-   - "I have this customer data and these possible offers"
-   - "Let me check: Is the computer sure? Did they have problems? Do they need a discount?"
-   - "Based on everything I checked, here's the best offer: Business Class at $199"
+**ReWOO (Reasoning Without Observation)** is ideal for this use case because:
 
-2. **Channel's Job**: Decide the best way to send that offer
-   - The Offer Agent gives the offer to the Channel
-   - "I figured out the offer, now you send it"
-   - The Channel looks at customer preferences: "Did they say email is okay? Do they have the app?"
-   - The Channel picks the best method: email, app notification, or text message
+1. **Plan once, execute all** - The Planner decides upfront which evaluations are needed (confidence check, price sensitivity, disruption history, etc.) rather than going back to the LLM after each step
+2. **Deterministic pre/post steps** - Eligibility and inventory don't need LLM reasoning; they're yes/no checks
+3. **Single LLM call** - Only the Offer Agent uses the LLM. Pre-checks and delivery are pure workflow
+4. **Auditable** - Every evaluation step produces structured output for compliance
 
-Think of it like a restaurant: The Chef (Offer Agent) decides what food to make. The Waiter (Channel) decides how to serve it (on a plate, in a box, etc.).
+### Phase Breakdown
 
-### Why Only 1 Agent?
+| Phase | Type | What It Does |
+|-------|------|-------------|
+| **Pre-checks** | ⚡ Workflow | Customer eligibility (suppression, consent) + inventory availability. Gate: stops pipeline if ineligible or no seats. |
+| **Offer Agent** | 🧠 Agent (ReWOO) | **Planner** picks which evaluations to run (confidence, price sensitivity, disruption, relationship). **Worker** executes each evaluation. **Solver** synthesizes results into a final offer decision. |
+| **Delivery** | ⚡ Workflow + LLM | Message generation (LLM for personalized copy, template fallback), channel selection (rules-based), A/B tracking setup. |
 
-| Component | Type | Why? |
-|-----------|------|------|
-| Customer Intelligence | ⚡ Workflow | Simple yes/no eligibility check |
-| Flight Optimization | ⚡ Workflow | Data lookup, not a decision |
-| **Offer Orchestration** | 🧠 **Agent (Offer Agent)** | Figures out which offer to give - Complex 15+ factor decision with audit trail |
-| Personalization | ✨ LLM Call | Text generation, not decision-making |
-| Channel & Timing | ⚡ Workflow | Receives offer from Offer Agent and decides best method to send it (email, app notification, text message) based on simple rules (has consent? → which channel) |
-| Tracking Setup | 🏷️ Post-Decision | Just attaches A/B group + tracking ID |
+### How It Works (Plain English)
 
-**Key insight:** Use agents where they add value, not everywhere for consistency.
+1. **Pre-checks** - "Can we contact this customer? Are there seats to sell?"
+   - If customer is suppressed or no inventory → pipeline stops immediately
+   - No LLM needed, just data lookups and rules
+
+2. **Offer Agent (the brain)** - "Which upgrade should we offer, and at what price?"
+   - Planner: "For this customer, I need to check: ML confidence, price sensitivity, and recent disruption history"
+   - Worker: Runs each evaluation and gets structured results
+   - Solver: "Business Class at $249, no discount needed. Here's why..."
+
+3. **Delivery** - "How do we get this offer to the customer?"
+   - Generates a personalized message (LLM or template)
+   - Picks the best channel (push vs email) based on consent and engagement
+   - Assigns A/B test group and tracking ID
 
 ---
 
@@ -91,12 +94,12 @@ Think of it like a restaurant: The Chef (Offer Agent) decides what food to make.
 
 | PNR | Customer | What It Shows | Outcome |
 |-----|----------|---------------|---------|
-| **ABC123** | Sarah (Gold, T-96hrs) | Full happy path | ✅ Business @ $199 |
-| **XYZ789** | John (Platinum Pro, T-72hrs) | Price adjustment | ✅ Business @ $249 |
-| **LMN456** | Emily (Exec Platinum, T-120hrs) | Premium treatment | ✅ Business @ $770 |
-| **DEF321** | Michael (General, T-48hrs) | Cold start + no inventory | ❌ No offer |
-| **GHI654** | Lisa (Platinum, T-96hrs) | Suppressed customer | ❌ No offer |
-| **JKL789** | Budget (T-84hrs) | Price-sensitive | ✅ MCE @ discounted |
+| **ABC123** | Sarah (Gold, T-96hrs) | Full happy path - clear Business EV winner | ✅ Business @ $249 |
+| **XYZ789** | John (Platinum Pro, T-72hrs) | Confidence trade-off - high EV but unreliable ML | ✅ Adjusted offer |
+| **LMN456** | Emily (Exec Platinum, T-120hrs) | Relationship trade-off - recent service issue | ✅ Gentle approach |
+| **DEF321** | Michael (Gold, T-48hrs) | Guardrail: no inventory (0 seats) | ❌ Stopped at Pre-checks |
+| **GHI654** | Lisa (Platinum, T-96hrs) | Guardrail: suppressed customer | ❌ Stopped at Pre-checks |
+| **JKL789** | David (Gold, T-84hrs) | Price sensitive + recent 3hr delay | ✅ MCE @ discounted |
 
 ---
 
@@ -205,19 +208,18 @@ tailored-offers-demo/
 │   └── main.py            # Endpoints + SSE streaming
 ├── frontend/              # React + Vite + Tailwind
 │   └── src/components/    # UI components
-├── agents/                # The 6 pipeline steps
-│   ├── customer_intelligence.py   # ⚡ Eligibility check
-│   ├── flight_optimization.py     # ⚡ Inventory lookup
-│   ├── offer_orchestration.py     # 🧠 THE AGENT (15+ factors)
-│   ├── personalization.py         # ✨ LLM message generation
-│   ├── channel_timing.py          # ⚡ Channel selection
-│   ├── measurement_learning.py    # 🏷️ Tracking setup
-│   └── workflow.py                # LangGraph pipeline
+├── agents/                # Pipeline phases
+│   ├── prechecks.py       # ⚡ Phase 1: Eligibility + Inventory (workflow)
+│   ├── offer_orchestration.py  # 🧠 Phase 2: ReWOO Offer Agent
+│   ├── delivery.py        # ⚡ Phase 3: Message + Channel + Tracking (workflow)
+│   ├── llm_service.py     # LLM provider abstraction
+│   └── workflow.py        # LangGraph pipeline
 ├── tools/                 # MCP tool abstraction layer
 │   ├── data_tools.py      # get_customer(), get_flight(), etc.
 │   ├── mcp_server.py      # MCP server (FastMCP) exposing data tools
 │   └── mcp_client.py      # MCP client wrapper (langchain-mcp-adapters)
 ├── data/                  # Mock data (JSON files)
+├── config/                # Custom prompt configurations
 ├── docker-compose.yml
 └── requirements.txt
 ```
@@ -228,6 +230,7 @@ tailored-offers-demo/
 
 | Component | Technology |
 |-----------|------------|
+| Agent Pattern | ReWOO (Planner → Worker → Solver) |
 | Workflow Orchestration | LangGraph (StateGraph) |
 | LLM | OpenAI GPT-4o-mini / Anthropic Claude 3.5 |
 | Data Protocol | MCP (Model Context Protocol) with langchain-mcp-adapters |
@@ -239,16 +242,26 @@ tailored-offers-demo/
 
 ## Architecture Highlights
 
-### Sequential Pipeline with Conditional Routing
+### 3-Phase Pipeline with Conditional Routing
 
 ```python
-workflow = StateGraph(AgentState)
-workflow.add_edge("customer_intelligence", "flight_optimization")
-workflow.add_conditional_edges(
-    "customer_intelligence",
-    should_continue,  # If suppressed → END, else → continue
-    {"continue": "flight_optimization", "stop": END}
-)
+# Phase 1: Pre-checks (workflow)
+eligible, reason, segment, details = check_customer_eligibility(customer)
+if not eligible:
+    return  # STOP - customer not eligible
+
+has_inventory, cabins, status = check_inventory_availability(flight)
+if not has_inventory:
+    return  # STOP - no seats to sell
+
+# Phase 2: Offer Agent (ReWOO)
+# Planner → Worker → Solver
+offer_decision = offer_agent.invoke(state)
+
+# Phase 3: Delivery (workflow + LLM)
+message = generate_message(customer, flight, offer_type, price)
+channel = select_channel(customer, hours_to_departure)
+tracking = setup_tracking(pnr, offer_type)
 ```
 
 ### Agent Contract
@@ -294,11 +307,12 @@ USE_DYNAMIC_REASONING=true  # LLM generates explanations for all agents
 
 ## Demo Tips
 
-1. **Start with ABC123** - Shows full happy path with all steps
-2. **Show GHI654** - Pipeline stops early (suppressed customer)
-3. **Click "View State"** - Shows LangGraph state passing between nodes
-4. **Click each node** - See detailed reasoning in right panel
-5. **Try "Take the Tour"** - Interactive tutorial in Architecture section
+1. **Start with ABC123** - Shows full happy path with all 3 phases
+2. **Show GHI654** - Pipeline stops at Pre-checks (suppressed customer)
+3. **Show DEF321** - Pipeline stops at Pre-checks (no inventory)
+4. **Show JKL789** - Agent considers recent disruption + price sensitivity
+5. **Click "View Details"** - Shows sub-steps within each phase
+6. **Click each phase** - See detailed reasoning in right panel
 
 ---
 
@@ -309,5 +323,6 @@ USE_DYNAMIC_REASONING=true  # LLM generates explanations for all agents
 | **Explainability** | Every decision has traceable reasoning |
 | **Auditability** | 15+ factors documented for compliance |
 | **Guardrails** | Business rules enforced in code, not prompts |
-| **Hybrid AI** | Rules for speed, LLM for intelligence |
+| **Hybrid AI** | Workflows for speed, Agent for intelligence |
+| **Clean Architecture** | 1 Agent where it matters, workflows everywhere else |
 | **Future-proof** | Same architecture scales to real-time scenarios |
