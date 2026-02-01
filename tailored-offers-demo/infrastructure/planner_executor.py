@@ -729,36 +729,30 @@ class OfferExecutor(BaseExecutor):
     """
 
     def __init__(self):
-        # Import agents
-        from agents.customer_intelligence import CustomerIntelligenceAgent
-        from agents.flight_optimization import FlightOptimizationAgent
-        from agents.offer_orchestration import OfferOrchestrationAgent
-        from agents.personalization import PersonalizationAgent
-        from agents.channel_timing import ChannelTimingAgent
-        from agents.measurement_learning import MeasurementLearningAgent
+        from agents.prechecks import check_customer_eligibility, check_inventory_availability
+        from agents.delivery import generate_message, select_channel, setup_tracking
 
-        self.agents = {
-            "customer_intelligence": CustomerIntelligenceAgent(),
-            "flight_optimization": FlightOptimizationAgent(),
-            "offer_orchestration": OfferOrchestrationAgent(),
-            "personalization": PersonalizationAgent(),
-            "channel_timing": ChannelTimingAgent(),
-            "measurement_learning": MeasurementLearningAgent(),
+        self.functions = {
+            "customer_intelligence": check_customer_eligibility,
+            "flight_optimization": check_inventory_availability,
+            "personalization": generate_message,
+            "channel_timing": select_channel,
+            "measurement_learning": setup_tracking,
         }
 
         self.memory = get_memory()
 
     def execute_step(self, step: PlanStep, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a single plan step by calling the appropriate agent."""
-        agent = self.agents.get(step.agent)
-        if not agent:
+        """Execute a single plan step by calling the appropriate function."""
+        func = self.functions.get(step.agent)
+        if not func:
             raise ValueError(f"Unknown agent: {step.agent}")
 
         # Build state from context
         state = self._build_state(context, step)
 
-        # Execute agent
-        result = agent.analyze(state)
+        # Execute function based on agent type
+        result = self._call_function(step.agent, func, state)
 
         # Record in memory
         customer_id = context.get("customer_id") or state.get("customer_data", {}).get("lylty_acct_id")
@@ -777,6 +771,42 @@ class OfferExecutor(BaseExecutor):
                 logger.info("eligibility_check_failed", reason=result.get("suppression_reason"))
 
         return result
+
+    def _call_function(self, agent_name: str, func, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Call the appropriate function based on agent type and return a result dict."""
+        if agent_name == "customer_intelligence":
+            customer = state.get("customer_data", {})
+            reservation = state.get("reservation_data", {})
+            ml_scores = state.get("ml_scores", {})
+            eligible, suppression_reason, segment, details = func(customer, reservation, ml_scores)
+            result = {"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment}
+            if isinstance(details, dict):
+                result.update(details)
+            return result
+        elif agent_name == "flight_optimization":
+            flight = state.get("flight_data", {})
+            current_cabin = state.get("reservation_data", {}).get("current_cabin", "")
+            has_inventory, recommended_cabins, inventory_status = func(flight, current_cabin)
+            result = {"has_inventory": has_inventory, "recommended_cabins": recommended_cabins}
+            if isinstance(inventory_status, dict):
+                result.update(inventory_status)
+            return result
+        elif agent_name == "personalization":
+            customer = state.get("customer_data", {})
+            flight = state.get("flight_data", {})
+            offer_type = state.get("selected_offer", "MCE")
+            price = state.get("offer_price", 0)
+            return func(customer, flight, offer_type, price)
+        elif agent_name == "channel_timing":
+            customer = state.get("customer_data", {})
+            hours = state.get("reservation_data", {}).get("hours_to_departure", 72)
+            return func(customer, hours)
+        elif agent_name == "measurement_learning":
+            pnr = state.get("pnr_locator", "unknown")
+            offer_type = state.get("selected_offer", "MCE")
+            return func(pnr, offer_type)
+        else:
+            raise ValueError(f"Unknown agent type: {agent_name}")
 
     def _build_state(self, context: Dict[str, Any], step: PlanStep) -> Dict[str, Any]:
         """Build agent state from execution context."""
@@ -1453,20 +1483,15 @@ class IncrementalOfferExecutor:
     """
 
     def __init__(self):
-        from agents.customer_intelligence import CustomerIntelligenceAgent
-        from agents.flight_optimization import FlightOptimizationAgent
-        from agents.offer_orchestration import OfferOrchestrationAgent
-        from agents.personalization import PersonalizationAgent
-        from agents.channel_timing import ChannelTimingAgent
-        from agents.measurement_learning import MeasurementLearningAgent
+        from agents.prechecks import check_customer_eligibility, check_inventory_availability
+        from agents.delivery import generate_message, select_channel, setup_tracking
 
-        self.agents = {
-            "customer_intelligence": CustomerIntelligenceAgent(),
-            "flight_optimization": FlightOptimizationAgent(),
-            "offer_orchestration": OfferOrchestrationAgent(),
-            "personalization": PersonalizationAgent(),
-            "channel_timing": ChannelTimingAgent(),
-            "measurement_learning": MeasurementLearningAgent(),
+        self.functions = {
+            "customer_intelligence": check_customer_eligibility,
+            "flight_optimization": check_inventory_availability,
+            "personalization": generate_message,
+            "channel_timing": select_channel,
+            "measurement_learning": setup_tracking,
         }
 
         self.memory = get_memory()
@@ -1480,8 +1505,8 @@ class IncrementalOfferExecutor:
         """
         start_time = datetime.now()
 
-        agent = self.agents.get(step.agent)
-        if not agent:
+        func = self.functions.get(step.agent)
+        if not func:
             return WorkerResult.failure_result(
                 error=f"Unknown agent: {step.agent}",
                 error_type="configuration",
@@ -1492,8 +1517,8 @@ class IncrementalOfferExecutor:
         agent_state = self._build_agent_state(step, state)
 
         try:
-            # Execute agent with timeout handling
-            result = self._execute_with_monitoring(agent, step, agent_state)
+            # Execute function with timeout handling
+            result = self._execute_with_monitoring(func, step, agent_state)
 
             duration_ms = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -1604,14 +1629,45 @@ class IncrementalOfferExecutor:
 
     def _execute_with_monitoring(
         self,
-        agent,
+        func,
         step: PlanStep,
         agent_state: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Execute agent with monitoring and timeout handling."""
-        # For now, direct execution
-        # In production, this could add timeout, circuit breaker, etc.
-        return agent.analyze(agent_state)
+        """Execute function with monitoring and timeout handling."""
+        # Call the appropriate function based on agent type
+        if step.agent == "customer_intelligence":
+            customer = agent_state.get("customer_data", {})
+            reservation = agent_state.get("reservation_data", {})
+            ml_scores = agent_state.get("ml_scores", {})
+            eligible, suppression_reason, segment, details = func(customer, reservation, ml_scores)
+            result = {"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment}
+            if isinstance(details, dict):
+                result.update(details)
+            return result
+        elif step.agent == "flight_optimization":
+            flight = agent_state.get("flight_data", {})
+            current_cabin = agent_state.get("reservation_data", {}).get("current_cabin", "")
+            has_inventory, recommended_cabins, inventory_status = func(flight, current_cabin)
+            result = {"has_inventory": has_inventory, "recommended_cabins": recommended_cabins}
+            if isinstance(inventory_status, dict):
+                result.update(inventory_status)
+            return result
+        elif step.agent == "personalization":
+            customer = agent_state.get("customer_data", {})
+            flight = agent_state.get("flight_data", {})
+            offer_type = agent_state.get("selected_offer", "MCE")
+            price = agent_state.get("offer_price", 0)
+            return func(customer, flight, offer_type, price)
+        elif step.agent == "channel_timing":
+            customer = agent_state.get("customer_data", {})
+            hours = agent_state.get("reservation_data", {}).get("hours_to_departure", 72)
+            return func(customer, hours)
+        elif step.agent == "measurement_learning":
+            pnr = agent_state.get("pnr_locator", "unknown")
+            offer_type = agent_state.get("selected_offer", "MCE")
+            return func(pnr, offer_type)
+        else:
+            raise ValueError(f"Unknown agent type: {step.agent}")
 
     def _check_early_termination(
         self,

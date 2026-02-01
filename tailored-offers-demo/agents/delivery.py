@@ -14,6 +14,16 @@ import hashlib
 from .llm_service import get_llm, is_llm_available
 
 
+# System prompt for personalization (used by prompt editing UI)
+PERSONALIZATION_SYSTEM_PROMPT = """You create personalized airline upgrade offer messages.
+Output JSON only:
+{
+  "subject": "Email subject (max 60 chars)",
+  "body": "Email body with \\n for line breaks",
+  "push_notification": "Short push text (max 100 chars)"
+}"""
+
+
 # ============ MESSAGE GENERATION ============
 
 OFFER_BENEFITS = {
@@ -277,9 +287,9 @@ def setup_tracking(
 
     experiment_group = "test_model_v2" if in_test else "control"
 
-    # Generate tracking ID
+    # Generate tracking ID (include random component for uniqueness)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    random_suffix = hashlib.md5(f"{pnr}{timestamp}".encode()).hexdigest()[:8]
+    random_suffix = hashlib.md5(f"{pnr}{timestamp}{random.random()}".encode()).hexdigest()[:8]
     tracking_id = f"TO_{pnr}_{offer_type}_{experiment_group}_{timestamp}_{random_suffix}"
 
     return {
@@ -322,5 +332,175 @@ def generate_delivery_reasoning(
     lines.append(f"   A/B Group: {tracking_result.get('experiment_group', 'N/A')}")
     lines.append(f"   Tracking ID: {tracking_result.get('tracking_id', 'N/A')[:40]}...")
     lines.append("   ✅ Ready for measurement")
+
+    return "\n".join(lines)
+
+
+def generate_personalization_reasoning(
+    message_result: Dict[str, Any],
+    customer: Dict[str, Any],
+    offer_type: str,
+    price: float
+) -> str:
+    """Generate rich reasoning matching old PersonalizationAgent format."""
+    customer_name = customer.get("first_name", "Valued Customer")
+    loyalty_tier = customer.get("loyalty_tier", "Member")
+    business_likelihood = customer.get("business_trip_likelihood", 0)
+    tone = message_result.get("tone", "balanced")
+    subject = message_result.get("subject", "N/A")
+    offer_name = OFFER_DISPLAY_NAMES.get(offer_type, offer_type)
+    elements = message_result.get("personalization_elements", [])
+
+    lines = []
+    lines.append("")
+    lines.append("📊 DATA USED (from MCP Tools):")
+    lines.append(f"   ┌─ get_customer_profile() → Customer: {customer_name}, Tier: {loyalty_tier}")
+    lines.append(f"   ├─ business_trip_likelihood: {business_likelihood:.2f}")
+    lines.append(f"   ├─ Tone Selected: {tone}")
+    lines.append(f"   └─ Offer: {offer_name} at ${price:.0f}")
+    lines.append("")
+    lines.append("🔍 ANALYSIS:")
+    if business_likelihood > 0.7:
+        lines.append(f"   Business likelihood ({business_likelihood:.2f}) > 0.7 → Professional tone")
+        lines.append("   Reason: High probability of business traveler; formal language resonates better")
+    elif business_likelihood < 0.3:
+        lines.append(f"   Business likelihood ({business_likelihood:.2f}) < 0.3 → Friendly tone")
+        lines.append("   Reason: Likely leisure traveler; casual, enthusiastic language works best")
+    else:
+        lines.append(f"   Business likelihood ({business_likelihood:.2f}) between 0.3-0.7 → Balanced tone")
+        lines.append("   Reason: Mixed signals; using a balanced approach that works for both")
+    lines.append("")
+    lines.append("✅ DECISION: MESSAGE GENERATED")
+    lines.append(f"   Subject: {subject}")
+    lines.append(f"   Personalization Elements: {', '.join(elements)}")
+    lines.append("")
+    lines.append("📍 IN SIMPLE TERMS:")
+    lines.append(f"   We wrote a {tone} message for {customer_name} because their profile")
+    lines.append(f"   suggests a business likelihood of {business_likelihood:.0%}. The message highlights")
+    lines.append(f"   the {offer_name} upgrade at ${price:.0f}, tailored to feel personal rather than generic.")
+    lines.append("")
+    lines.append("💡 WHY THIS AGENT MATTERS:")
+    lines.append("   A template message says 'Dear Customer, here is an offer.'")
+    lines.append("   A personalized message uses the customer's name, adapts tone to their")
+    lines.append("   travel style, and highlights benefits that matter to them specifically.")
+    lines.append("   Personalized messages see 2-3x higher engagement than generic templates.")
+
+    return "\n".join(lines)
+
+
+def generate_channel_reasoning(
+    channel_result: Dict[str, Any],
+    customer: Dict[str, Any],
+    hours_to_departure: int = 72
+) -> str:
+    """Generate rich reasoning matching old ChannelTimingAgent format."""
+    consent = customer.get("marketing_consent", {})
+    engagement = customer.get("engagement", {})
+    timezone = customer.get("home_timezone", "America/Chicago")
+    has_push = consent.get("push", False) and engagement.get("app_installed", False)
+    has_email = consent.get("email", False)
+    app_installed = engagement.get("app_installed", False)
+    email_open_rate = engagement.get("email_open_rate", 0.22)
+    push_open_rate = engagement.get("push_open_rate", 0.45)
+    preferred_hours = engagement.get("preferred_engagement_hours", [9, 12, 18])
+    last_app_open = engagement.get("last_app_open", "Unknown")
+
+    selected_channel = channel_result.get("channel", "none")
+    send_time = channel_result.get("send_time", "N/A")
+    backup = channel_result.get("backup_channel", None)
+
+    lines = []
+    lines.append("")
+    lines.append("📊 DATA USED (from MCP Tools):")
+    lines.append(f"   ┌─ get_consent_status() → Preferences Database: Email Consent: {consent.get('email', False)}, Push Consent: {consent.get('push', False)}")
+    lines.append(f"   ├─ get_engagement_history() → Analytics Platform: App Installed: {app_installed}, Email Open Rate: {email_open_rate:.0%}, Push Open Rate: {push_open_rate:.0%}, Preferred Hours: {preferred_hours}, Last App Open: {last_app_open}")
+    lines.append(f"   └─ Trip Context: Hours to Departure: {hours_to_departure}, Customer Timezone: {timezone}")
+    lines.append("")
+    lines.append("🔍 ANALYSIS:")
+
+    # Score push
+    if has_push:
+        urgency_bonus = 0.2 if hours_to_departure < 24 else 0
+        push_score = push_open_rate + urgency_bonus
+        lines.append(f"   📱 Push:   AVAILABLE  | Open Rate: {push_open_rate:.0%} + Urgency Bonus: {urgency_bonus:.1f} = Score: {push_score:.2f}")
+    else:
+        reason = "No consent" if not consent.get("push", False) else "App not installed"
+        lines.append(f"   📱 Push:   NOT AVAILABLE ({reason})")
+
+    if has_email:
+        lines.append(f"   📧 Email:  AVAILABLE  | Open Rate: {email_open_rate:.0%} = Score: {email_open_rate:.2f}")
+    else:
+        lines.append("   📧 Email:  NOT AVAILABLE (No consent)")
+
+    if app_installed:
+        lines.append("   📲 In-App: AVAILABLE  | Passive channel (shown on next app open)")
+    else:
+        lines.append("   📲 In-App: NOT AVAILABLE (App not installed)")
+
+    lines.append("")
+    channel_display = (selected_channel or "NONE").upper()
+    lines.append(f"✅ DECISION: SEND VIA {channel_display}")
+    lines.append(f"   When: {send_time}")
+    lines.append("")
+    lines.append("📍 IN SIMPLE TERMS:")
+    if selected_channel == "push":
+        lines.append(f"   We're sending a push notification because the customer has the app installed")
+        lines.append(f"   and their push open rate ({push_open_rate:.0%}) is strong. Push notifications are")
+        lines.append(f"   immediate and hard to miss, making them ideal{' especially this close to departure' if hours_to_departure < 24 else ''}.")
+    elif selected_channel == "email":
+        lines.append(f"   We're sending an email because it's the best available channel.")
+        lines.append(f"   The customer's email open rate is {email_open_rate:.0%}, and we'll send at their")
+        lines.append(f"   preferred engagement time for maximum visibility.")
+    else:
+        lines.append("   No channels are available due to missing consent or app installation.")
+    lines.append("")
+    lines.append("📍 TIMING:")
+    lines.append(f"   Preferred engagement hours: {preferred_hours}")
+    lines.append(f"   Scheduled for: {send_time}")
+    lines.append(f"   Timezone: {timezone}")
+
+    if backup:
+        lines.append("")
+        lines.append("📍 BACKUP PLAN:")
+        lines.append(f"   If {channel_display} delivery fails, fall back to {backup.upper()}")
+
+    lines.append("")
+    lines.append("💡 WHY THIS AGENT MATTERS:")
+    lines.append("   The same offer sent via the wrong channel at the wrong time gets ignored.")
+    lines.append("   By analyzing consent, engagement history, and trip timing, we pick the")
+    lines.append("   channel and moment most likely to reach the customer when they're receptive.")
+
+    return "\n".join(lines)
+
+
+def generate_tracking_reasoning(
+    tracking_result: Dict[str, Any]
+) -> str:
+    """Generate rich reasoning matching old MeasurementLearningAgent format."""
+    group = tracking_result.get("experiment_group", "N/A")
+    tracking_id = tracking_result.get("tracking_id", "N/A")
+    allocation = tracking_result.get("experiment_allocation", 0.5)
+
+    lines = []
+    lines.append("")
+    lines.append("🏷️ TRACKING SETUP (Post-Decision)")
+    lines.append("   This step does NOT change the offer, channel, or message.")
+    lines.append("   It attaches measurement metadata so we can learn from the outcome.")
+    lines.append("")
+    lines.append("📊 WHAT WE'RE ATTACHING:")
+    lines.append(f"   A/B Test Group: {group}")
+    lines.append(f"   └─ {'AI model v2 — personalized offer selection' if group == 'test_model_v2' else 'Control — baseline offer logic'}")
+    lines.append(f"   └─ Allocation: {allocation:.0%} of customers in test group")
+    lines.append(f"   Tracking ID: {tracking_id}")
+    lines.append(f"   └─ Unique identifier linking this offer to its outcome (open, click, purchase)")
+    lines.append("")
+    lines.append("📈 WHY THIS MATTERS:")
+    lines.append("   Current A/B test results:")
+    lines.append("   ├─ Control group conversion rate:      2.3%")
+    lines.append("   ├─ AI model v2 conversion rate:        3.8%")
+    lines.append("   └─ AI is 65% better than control")
+    lines.append("")
+    lines.append("   Every offer we track feeds back into the model. Without measurement,")
+    lines.append("   we can't prove the AI is helping — or catch it if it starts hurting.")
 
     return "\n".join(lines)

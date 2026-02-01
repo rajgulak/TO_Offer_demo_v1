@@ -52,76 +52,67 @@ def run_single_pnr(pnr_locator: str):
 
     try:
         # Import and run agents manually to show progress
-        from agents.state import create_initial_state
-        from agents.customer_intelligence import CustomerIntelligenceAgent
-        from agents.flight_optimization import FlightOptimizationAgent
-        from agents.offer_orchestration import OfferOrchestrationAgent
-        from agents.personalization import PersonalizationAgent
-        from agents.channel_timing import ChannelTimingAgent
-        from agents.measurement_learning import MeasurementLearningAgent
+        from agents.prechecks import check_customer_eligibility, check_inventory_availability
+        from agents.delivery import generate_message, select_channel, setup_tracking
 
-        state = create_initial_state(pnr_locator)
-        state["customer_data"] = enriched["customer"]
-        state["flight_data"] = enriched["flight"]
-        state["reservation_data"] = enriched["pnr"]
-        state["ml_scores"] = enriched["ml_scores"]
+        customer = enriched["customer"]
+        flight_data = enriched["flight"]
+        reservation = enriched["pnr"]
+        ml_scores = enriched["ml_scores"]
 
-        # Agent 1
-        print("🧠 Agent 1: Customer Intelligence...")
-        agent1 = CustomerIntelligenceAgent()
-        result = agent1.analyze(state)
-        state.update(result)
-        print(f"   → Eligible: {state.get('customer_eligible')}")
-        print(f"   → Segment: {state.get('customer_segment')}")
+        # Step 1
+        print("🧠 Step 1: Customer Eligibility...")
+        eligible, suppression_reason, segment, details = check_customer_eligibility(
+            customer, reservation, ml_scores
+        )
+        print(f"   → Eligible: {eligible}")
+        print(f"   → Segment: {segment}")
 
-        if not state.get("customer_eligible"):
-            print(f"\n❌ RESULT: No offer - {state.get('suppression_reason')}")
+        if not eligible:
+            print(f"\n❌ RESULT: No offer - {suppression_reason}")
             return
 
-        # Agent 2
-        print("\n📊 Agent 2: Flight Optimization...")
-        agent2 = FlightOptimizationAgent()
-        result = agent2.analyze(state)
-        state.update(result)
-        print(f"   → Flight Priority: {state.get('flight_priority')}")
-        print(f"   → Recommended Cabins: {state.get('recommended_cabins')}")
+        # Step 2
+        print("\n📊 Step 2: Inventory Availability...")
+        has_inventory, recommended_cabins, inventory_status = check_inventory_availability(
+            flight_data, reservation.get("current_cabin", "")
+        )
+        print(f"   → Has Inventory: {has_inventory}")
+        print(f"   → Recommended Cabins: {recommended_cabins}")
 
-        # Agent 3
-        print("\n⚖️  Agent 3: Offer Orchestration...")
-        agent3 = OfferOrchestrationAgent()
-        result = agent3.analyze(state)
-        state.update(result)
-        print(f"   → Selected Offer: {state.get('selected_offer')}")
-        print(f"   → Price: ${state.get('offer_price', 0):.0f}")
-        print(f"   → Expected Value: ${state.get('expected_value', 0):.2f}")
-
-        if not state.get("should_send_offer"):
-            print(f"\n❌ RESULT: No offer - criteria not met")
+        if not has_inventory:
+            print(f"\n❌ RESULT: No offer - no inventory available")
             return
 
-        # Agent 4
-        print("\n✨ Agent 4: Personalization (GenAI)...")
-        agent4 = PersonalizationAgent()
-        result = agent4.analyze(state)
-        state.update(result)
-        print(f"   → Tone: {state.get('message_tone')}")
-        print(f"   → Subject: {state.get('message_subject')[:50]}...")
+        # Step 3: Determine offer type and price from inventory
+        offer_type = recommended_cabins[0] if recommended_cabins else "MCE"
+        offer_price = 0  # Would be calculated by pricing logic
 
-        # Agent 5
-        print("\n📱 Agent 5: Channel & Timing...")
-        agent5 = ChannelTimingAgent()
-        result = agent5.analyze(state)
-        state.update(result)
-        print(f"   → Channel: {state.get('selected_channel')}")
-        print(f"   → Send Time: {state.get('send_time')}")
+        # Step 4
+        print("\n✨ Step 4: Personalization (GenAI)...")
+        message_result = generate_message(customer, flight_data, offer_type, offer_price)
+        print(f"   → Tone: {message_result.get('message_tone')}")
+        print(f"   → Subject: {message_result.get('message_subject', '')[:50]}...")
 
-        # Agent 6
-        print("\n📈 Agent 6: Measurement & Learning...")
-        agent6 = MeasurementLearningAgent()
-        result = agent6.analyze(state)
-        state.update(result)
-        print(f"   → Experiment Group: {state.get('experiment_group')}")
-        print(f"   → Tracking ID: {state.get('tracking_id')}")
+        # Step 5
+        print("\n📱 Step 5: Channel & Timing...")
+        channel_result = select_channel(customer, reservation.get("hours_to_departure", 72))
+        print(f"   → Channel: {channel_result.get('selected_channel')}")
+        print(f"   → Send Time: {channel_result.get('send_time')}")
+
+        # Step 6
+        print("\n📈 Step 6: Measurement & Learning...")
+        tracking_result = setup_tracking(reservation.get("pnr_locator", pnr_locator), offer_type)
+        print(f"   → Experiment Group: {tracking_result.get('experiment_group')}")
+        print(f"   → Tracking ID: {tracking_result.get('tracking_id')}")
+
+        # Combine results into state for final display
+        state = {}
+        state.update(message_result)
+        state.update(channel_result)
+        state.update(tracking_result)
+        state["selected_offer"] = offer_type
+        state["offer_price"] = offer_price
 
         # Final result
         print(f"\n{'='*60}")

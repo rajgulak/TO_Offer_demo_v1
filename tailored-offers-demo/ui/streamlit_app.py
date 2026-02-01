@@ -18,13 +18,8 @@ from tools.data_tools import (
     get_all_reservations,
     get_enriched_pnr
 )
-from agents.state import create_initial_state
-from agents.customer_intelligence import CustomerIntelligenceAgent
-from agents.flight_optimization import FlightOptimizationAgent
-from agents.offer_orchestration import OfferOrchestrationAgent
-from agents.personalization import PersonalizationAgent
-from agents.channel_timing import ChannelTimingAgent
-from agents.measurement_learning import MeasurementLearningAgent
+from agents.prechecks import check_customer_eligibility, check_inventory_availability
+from agents.delivery import generate_message, select_channel, setup_tracking
 
 
 # Page config
@@ -189,12 +184,10 @@ def run_evaluation(pnr_locator: str):
         - **Hours to Departure**: {res['hours_to_departure']}
         """)
 
-    # Initialize state
-    state = create_initial_state(pnr_locator)
-    state["customer_data"] = enriched["customer"]
-    state["flight_data"] = enriched["flight"]
-    state["reservation_data"] = enriched["pnr"]
-    state["ml_scores"] = enriched["ml_scores"]
+    customer = enriched["customer"]
+    flight_data = enriched["flight"]
+    reservation = enriched["pnr"]
+    ml_scores = enriched["ml_scores"]
 
     st.markdown("---")
     st.header("🤖 Agent Processing")
@@ -203,111 +196,96 @@ def run_evaluation(pnr_locator: str):
     progress = st.progress(0)
     status = st.empty()
 
-    # Run agents sequentially with display
-    agents_results = []
+    # State dict to accumulate results for final display
+    state = {}
 
-    # Agent 1: Customer Intelligence
-    status.text("Running Customer Intelligence Agent...")
+    # Step 1: Customer Eligibility
+    status.text("Checking customer eligibility...")
     progress.progress(15)
 
-    customer_agent = CustomerIntelligenceAgent()
-    result = customer_agent.analyze(state)
-    state.update(result)
-    agents_results.append(("Customer Intelligence Agent", result.get("customer_reasoning", ""), "🧠"))
+    eligible, suppression_reason, segment, eligibility_details = check_customer_eligibility(
+        customer, reservation, ml_scores
+    )
+    state["customer_eligible"] = eligible
+    state["suppression_reason"] = suppression_reason
+    state["customer_segment"] = segment
 
     with st.container():
-        display_agent_output(
-            "Agent 1: Customer Intelligence",
-            result.get("customer_reasoning", "No reasoning available"),
-            "🧠"
-        )
+        reasoning = eligibility_details.get("customer_reasoning", "No reasoning available") if isinstance(eligibility_details, dict) else "No reasoning available"
+        display_agent_output("Step 1: Customer Eligibility", reasoning, "🧠")
 
-    # Check if should continue
-    if not state.get("customer_eligible", False):
+    if not eligible:
         progress.progress(100)
         status.text("Evaluation complete - Customer not eligible")
         display_no_offer(state)
         return
 
-    # Agent 2: Flight Optimization
-    status.text("Running Flight Optimization Agent...")
+    # Step 2: Inventory Availability
+    status.text("Checking inventory availability...")
     progress.progress(30)
 
-    flight_agent = FlightOptimizationAgent()
-    result = flight_agent.analyze(state)
-    state.update(result)
+    has_inventory, recommended_cabins, inventory_status = check_inventory_availability(
+        flight_data, reservation.get("current_cabin", "")
+    )
+    state["recommended_cabins"] = recommended_cabins
 
     with st.container():
-        display_agent_output(
-            "Agent 2: Flight Optimization",
-            result.get("flight_reasoning", "No reasoning available"),
-            "📊"
-        )
+        reasoning = inventory_status.get("flight_reasoning", "No reasoning available") if isinstance(inventory_status, dict) else "No reasoning available"
+        display_agent_output("Step 2: Inventory Availability", reasoning, "📊")
 
-    # Agent 3: Offer Orchestration
-    status.text("Running Offer Orchestration Agent...")
-    progress.progress(50)
-
-    offer_agent = OfferOrchestrationAgent()
-    result = offer_agent.analyze(state)
-    state.update(result)
-
-    with st.container():
-        display_agent_output(
-            "Agent 3: Offer Orchestration",
-            result.get("offer_reasoning", "No reasoning available"),
-            "⚖️"
-        )
-
-    # Check if should continue
-    if not state.get("should_send_offer", False):
+    if not has_inventory:
         progress.progress(100)
-        status.text("Evaluation complete - No offer selected")
+        status.text("Evaluation complete - No inventory available")
+        state["suppression_reason"] = "No inventory available"
         display_no_offer(state)
         return
 
-    # Agent 4: Personalization
-    status.text("Running Personalization Agent...")
-    progress.progress(65)
+    # Determine offer type and price
+    offer_type = recommended_cabins[0] if recommended_cabins else "MCE"
+    offer_price = 0  # Would be calculated by pricing logic
+    state["selected_offer"] = offer_type
+    state["offer_price"] = offer_price
+    state["should_send_offer"] = True
 
-    personalization_agent = PersonalizationAgent()
-    result = personalization_agent.analyze(state)
-    state.update(result)
+    # Step 3: Personalization
+    status.text("Generating personalized message...")
+    progress.progress(55)
+
+    message_result = generate_message(customer, flight_data, offer_type, offer_price)
+    state.update(message_result)
 
     with st.container():
         display_agent_output(
-            "Agent 4: Personalization (GenAI)",
-            result.get("personalization_reasoning", "No reasoning available"),
+            "Step 3: Personalization (GenAI)",
+            message_result.get("personalization_reasoning", "No reasoning available"),
             "✨"
         )
 
-    # Agent 5: Channel & Timing
-    status.text("Running Channel & Timing Agent...")
-    progress.progress(80)
+    # Step 4: Channel & Timing
+    status.text("Selecting channel and timing...")
+    progress.progress(75)
 
-    channel_agent = ChannelTimingAgent()
-    result = channel_agent.analyze(state)
-    state.update(result)
+    channel_result = select_channel(customer, reservation.get("hours_to_departure", 72))
+    state.update(channel_result)
 
     with st.container():
         display_agent_output(
-            "Agent 5: Channel & Timing",
-            result.get("channel_reasoning", "No reasoning available"),
+            "Step 4: Channel & Timing",
+            channel_result.get("channel_reasoning", "No reasoning available"),
             "📱"
         )
 
-    # Agent 6: Measurement & Learning
-    status.text("Running Measurement & Learning Agent...")
+    # Step 5: Measurement & Learning
+    status.text("Setting up tracking...")
     progress.progress(95)
 
-    measurement_agent = MeasurementLearningAgent()
-    result = measurement_agent.analyze(state)
-    state.update(result)
+    tracking_result = setup_tracking(reservation.get("pnr_locator", pnr_locator), offer_type)
+    state.update(tracking_result)
 
     with st.container():
         display_agent_output(
-            "Agent 6: Measurement & Learning",
-            result.get("measurement_reasoning", "No reasoning available"),
+            "Step 5: Measurement & Learning",
+            tracking_result.get("measurement_reasoning", "No reasoning available"),
             "📈"
         )
 

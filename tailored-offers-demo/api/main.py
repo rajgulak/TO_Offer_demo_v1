@@ -29,12 +29,17 @@ from agents.prechecks import (
     check_customer_eligibility,
     check_inventory_availability,
     generate_precheck_reasoning,
+    generate_customer_reasoning,
+    generate_flight_reasoning,
 )
 from agents.delivery import (
     generate_message,
     select_channel,
     setup_tracking,
     generate_delivery_reasoning,
+    generate_personalization_reasoning,
+    generate_channel_reasoning,
+    generate_tracking_reasoning,
 )
 # ReWOO Pattern: Planner-Worker-Solver for Offer Agent
 from agents.offer_orchestration_rewoo import (
@@ -42,12 +47,7 @@ from agents.offer_orchestration_rewoo import (
     ORCHESTRATION_SYSTEM_PROMPT,
     stream_offer_orchestration,
 )
-# Legacy imports for backward compatibility (keeping old agent classes available)
-from agents.customer_intelligence import CustomerIntelligenceAgent
-from agents.flight_optimization import FlightOptimizationAgent
-from agents.personalization import PersonalizationAgent, PERSONALIZATION_SYSTEM_PROMPT
-from agents.channel_timing import ChannelTimingAgent
-from agents.measurement_learning import MeasurementLearningAgent
+from agents.delivery import PERSONALIZATION_SYSTEM_PROMPT
 from agents.llm_service import get_llm_provider_name, is_llm_available
 from agents.workflow import USE_MCP
 
@@ -213,17 +213,6 @@ AGENT_CONFIG = [
 
 # Initialize the Offer Agent (the only true agent)
 offer_agent = OfferAgent()
-
-# Legacy agent instances for backward compatibility
-agents = {
-    "customer_intelligence": CustomerIntelligenceAgent(),
-    "flight_optimization": FlightOptimizationAgent(),
-    "offer_orchestration": offer_agent,
-    "offer_agent": offer_agent,  # New name
-    "personalization": PersonalizationAgent(),
-    "channel_timing": ChannelTimingAgent(),
-    "measurement": MeasurementLearningAgent()
-}
 
 # Default prompts for LLM-based components
 DEFAULT_PROMPTS = {
@@ -805,89 +794,151 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                 })
             }
 
-        # Process pre-flight agents first
-        pre_flight_agents = [
-            ("customer_intelligence", agents["customer_intelligence"], "customer_reasoning"),
-            ("flight_optimization", agents["flight_optimization"], "flight_reasoning"),
-        ]
+        # ===== PHASE 1: PRE-CHECKS =====
+        # Step 1: Customer Eligibility (replaces CustomerIntelligenceAgent)
+        step = 1
+        yield {
+            "event": "agent_start",
+            "data": json.dumps({
+                "agent_id": "customer_intelligence",
+                "agent_name": "Customer Intelligence",
+                "step": step,
+                "total_steps": total_steps
+            })
+        }
+        await asyncio.sleep(0.01)
 
-        step = 0
-        for agent_id, agent, reasoning_key in pre_flight_agents:
-            step += 1
-            config = next((a for a in AGENT_CONFIG if a["id"] == agent_id), {})
+        agent_start = time.time()
+        try:
+            eligible, suppression_reason, segment, customer_details = check_customer_eligibility(
+                customer=state.get("customer_data", {}),
+                reservation=state.get("reservation_data"),
+                ml_scores=state.get("ml_scores")
+            )
+            state["customer_eligible"] = eligible
+            state["customer_segment"] = segment
+            state["suppression_reason"] = suppression_reason
 
+            # Generate rich reasoning
+            customer_reasoning = generate_customer_reasoning(
+                customer=state.get("customer_data", {}),
+                eligible=eligible,
+                suppression_reason=suppression_reason,
+                segment=segment,
+                ml_scores=state.get("ml_scores")
+            )
+            state["customer_reasoning"] = customer_reasoning
+            duration_ms = int((time.time() - agent_start) * 1000)
+
+            yield {
+                "event": "agent_complete",
+                "data": json.dumps({
+                    "agent_id": "customer_intelligence",
+                    "agent_name": "Customer Intelligence",
+                    "step": step,
+                    "status": "complete",
+                    "duration_ms": duration_ms,
+                    "summary": extract_agent_summary("customer_intelligence", state),
+                    "reasoning": customer_reasoning,
+                    "outputs": extract_agent_outputs("customer_intelligence", state)
+                })
+            }
+
+            # Check for early termination
+            if not eligible:
+                for skip_step, skip_id in enumerate(
+                    ["flight_optimization", "offer_orchestration", "personalization", "channel_timing", "measurement"],
+                    step + 1
+                ):
+                    yield {
+                        "event": "agent_skip",
+                        "data": json.dumps({
+                            "agent_id": skip_id,
+                            "agent_name": skip_id.replace("_", " ").title(),
+                            "step": skip_step,
+                            "reason": "Customer not eligible"
+                        })
+                    }
+                # Jump to final decision (skip the else block)
+                eligible_continue = False
+            else:
+                eligible_continue = True
+
+        except Exception as e:
+            yield {
+                "event": "agent_error",
+                "data": json.dumps({"agent_id": "customer_intelligence", "step": step, "error": str(e)})
+            }
+            eligible_continue = False
+
+        # Step 2: Flight/Inventory Check (replaces FlightOptimizationAgent)
+        if eligible_continue:
+            step = 2
             yield {
                 "event": "agent_start",
                 "data": json.dumps({
-                    "agent_id": agent_id,
-                    "agent_name": config.get("name", agent_id),
+                    "agent_id": "flight_optimization",
+                    "agent_name": "Flight Optimization",
                     "step": step,
                     "total_steps": total_steps
                 })
             }
-
-            await asyncio.sleep(0.01)  # Minimal UI update
+            await asyncio.sleep(0.01)
 
             agent_start = time.time()
             try:
-                result = agent.analyze(state)
-                state.update(result)
+                current_cabin = state.get("reservation_data", {}).get("max_bkd_cabin_cd", "Y")
+                has_inventory, recommended_cabins, inventory_status = check_inventory_availability(
+                    flight=state.get("flight_data", {}),
+                    current_cabin=current_cabin
+                )
+                state["recommended_cabins"] = recommended_cabins
+                state["inventory_status"] = inventory_status
+                state["flight_priority"] = "high" if any(
+                    s.get("priority") == "high" for s in inventory_status.values()
+                ) else "medium" if recommended_cabins else "low"
+
+                # Generate rich reasoning
+                flight_reasoning = generate_flight_reasoning(
+                    flight=state.get("flight_data", {}),
+                    current_cabin=current_cabin,
+                    recommended_cabins=recommended_cabins,
+                    inventory_status=inventory_status,
+                    flight_priority=state["flight_priority"]
+                )
+                state["flight_reasoning"] = flight_reasoning
                 duration_ms = int((time.time() - agent_start) * 1000)
 
                 yield {
                     "event": "agent_complete",
                     "data": json.dumps({
-                        "agent_id": agent_id,
-                        "agent_name": config.get("name", agent_id),
+                        "agent_id": "flight_optimization",
+                        "agent_name": "Flight Optimization",
                         "step": step,
                         "status": "complete",
                         "duration_ms": duration_ms,
-                        "summary": extract_agent_summary(agent_id, state),
-                        "reasoning": state.get(reasoning_key, ""),
-                        "outputs": extract_agent_outputs(agent_id, state)
+                        "summary": extract_agent_summary("flight_optimization", state),
+                        "reasoning": flight_reasoning,
+                        "outputs": extract_agent_outputs("flight_optimization", state)
                     })
                 }
-
-                # Check for early termination
-                if agent_id == "customer_intelligence" and not state.get("customer_eligible"):
-                    for skip_step, (skip_id, _, _) in enumerate([
-                        ("flight_optimization", None, None),
-                        ("offer_orchestration", None, None),
-                        ("personalization", None, None),
-                        ("channel_timing", None, None),
-                        ("measurement", None, None),
-                    ], step + 1):
-                        skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
-                        yield {
-                            "event": "agent_skip",
-                            "data": json.dumps({
-                                "agent_id": skip_id,
-                                "agent_name": skip_config.get("name", skip_id),
-                                "step": skip_step,
-                                "reason": "Customer not eligible"
-                            })
-                        }
-                    # Jump to final decision
-                    break
 
             except Exception as e:
                 yield {
                     "event": "agent_error",
-                    "data": json.dumps({"agent_id": agent_id, "step": step, "error": str(e)})
+                    "data": json.dumps({"agent_id": "flight_optimization", "step": step, "error": str(e)})
                 }
-                break
-        else:
-            # All pre-flight agents completed, now run ReWOO offer orchestration with streaming
-            step = 3  # Offer orchestration is step 3
-            offer_config = next((a for a in AGENT_CONFIG if a["id"] == "offer_orchestration"), {})
-
-            # Check if customer is eligible AND there's inventory before running offer orchestration
+                eligible_continue = False
+        # ===== PHASE 2: OFFER AGENT (ReWOO) =====
+        if eligible_continue:
+            step = 3
+            # Check if customer is eligible AND there's inventory
             if state.get("customer_eligible", False) and state.get("recommended_cabins"):
                 yield {
                     "event": "agent_start",
                     "data": json.dumps({
                         "agent_id": "offer_orchestration",
-                        "agent_name": offer_config.get("name", "Offer Orchestration"),
+                        "agent_name": "Offer Orchestration",
                         "step": step,
                         "total_steps": total_steps
                     })
@@ -904,9 +955,9 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                         inventory_status=state.get("inventory_status", {}),
                     ):
                         phase = rewoo_event.get("phase")
-                        status = rewoo_event.get("status")
+                        evt_status = rewoo_event.get("status")
 
-                        if phase == "planner" and status == "complete":
+                        if phase == "planner" and evt_status == "complete":
                             yield {
                                 "event": "rewoo_planner_complete",
                                 "data": json.dumps({
@@ -916,7 +967,7 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                                 })
                             }
 
-                        elif phase == "worker" and status == "step_complete":
+                        elif phase == "worker" and evt_status == "step_complete":
                             yield {
                                 "event": "rewoo_worker_step",
                                 "data": json.dumps({
@@ -927,9 +978,8 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                                 })
                             }
 
-                        elif phase == "solver" and status == "complete":
+                        elif phase == "solver" and evt_status == "complete":
                             decision = rewoo_event.get("decision", {})
-                            # Update state with decision
                             state["selected_offer"] = decision.get("selected_offer", "NONE")
                             state["offer_price"] = decision.get("offer_price", 0)
                             state["discount_applied"] = decision.get("discount_applied", 0)
@@ -938,26 +988,23 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
 
                             yield {
                                 "event": "rewoo_solver_complete",
-                                "data": json.dumps({
-                                    "decision": decision,
-                                })
+                                "data": json.dumps({"decision": decision})
                             }
 
-                        await asyncio.sleep(0.01)  # Minimal UI update
+                        await asyncio.sleep(0.01)
 
                     duration_ms = int((time.time() - rewoo_start) * 1000)
 
-                    # Send agent_complete for offer_orchestration
                     yield {
                         "event": "agent_complete",
                         "data": json.dumps({
                             "agent_id": "offer_orchestration",
-                            "agent_name": offer_config.get("name", "Offer Orchestration"),
+                            "agent_name": "Offer Orchestration",
                             "step": step,
                             "status": "complete",
                             "duration_ms": duration_ms,
                             "summary": extract_agent_summary("offer_orchestration", state),
-                            "reasoning": "",  # Reasoning sent via rewoo events
+                            "reasoning": "",
                             "outputs": extract_agent_outputs("offer_orchestration", state)
                         })
                     }
@@ -968,80 +1015,178 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
                         "data": json.dumps({"agent_id": "offer_orchestration", "step": step, "error": str(e)})
                     }
 
-                # Check if offer should be sent
+                # ===== PHASE 3: DELIVERY =====
                 if not state.get("should_send_offer"):
                     for skip_step, skip_id in enumerate(["personalization", "channel_timing", "measurement"], step + 1):
-                        skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
                         yield {
                             "event": "agent_skip",
                             "data": json.dumps({
                                 "agent_id": skip_id,
-                                "agent_name": skip_config.get("name", skip_id),
+                                "agent_name": skip_id.replace("_", " ").title(),
                                 "step": skip_step,
                                 "reason": "No offer to send"
                             })
                         }
                 else:
-                    # Run post-offer agents
-                    post_offer_agents = [
-                        ("personalization", agents["personalization"], "personalization_reasoning"),
-                        ("channel_timing", agents["channel_timing"], "channel_reasoning"),
-                        ("measurement", agents["measurement"], "measurement_reasoning"),
-                    ]
+                    # Step 4: Message Generation (replaces PersonalizationAgent)
+                    step = 4
+                    yield {
+                        "event": "agent_start",
+                        "data": json.dumps({
+                            "agent_id": "personalization",
+                            "agent_name": "Personalization",
+                            "step": step,
+                            "total_steps": total_steps
+                        })
+                    }
+                    await asyncio.sleep(0.01)
 
-                    for agent_id, agent, reasoning_key in post_offer_agents:
-                        step += 1
-                        config = next((a for a in AGENT_CONFIG if a["id"] == agent_id), {})
+                    agent_start = time.time()
+                    try:
+                        message_result = generate_message(
+                            customer=state.get("customer_data", {}),
+                            flight=state.get("flight_data", {}),
+                            offer_type=state.get("selected_offer", ""),
+                            price=state.get("offer_price", 0)
+                        )
+                        state["message_subject"] = message_result.get("subject", "")
+                        state["message_body"] = message_result.get("body", "")
+                        state["message_tone"] = message_result.get("tone", "balanced")
+                        state["personalization_elements"] = message_result.get("personalization_elements", [])
+
+                        personalization_reasoning = generate_personalization_reasoning(
+                            message_result=message_result,
+                            customer=state.get("customer_data", {}),
+                            offer_type=state.get("selected_offer", ""),
+                            price=state.get("offer_price", 0)
+                        )
+                        state["personalization_reasoning"] = personalization_reasoning
+                        duration_ms = int((time.time() - agent_start) * 1000)
 
                         yield {
-                            "event": "agent_start",
+                            "event": "agent_complete",
                             "data": json.dumps({
-                                "agent_id": agent_id,
-                                "agent_name": config.get("name", agent_id),
+                                "agent_id": "personalization",
+                                "agent_name": "Personalization",
                                 "step": step,
-                                "total_steps": total_steps
+                                "status": "complete",
+                                "duration_ms": duration_ms,
+                                "summary": extract_agent_summary("personalization", state),
+                                "reasoning": personalization_reasoning,
+                                "outputs": extract_agent_outputs("personalization", state)
                             })
                         }
+                    except Exception as e:
+                        yield {
+                            "event": "agent_error",
+                            "data": json.dumps({"agent_id": "personalization", "step": step, "error": str(e)})
+                        }
 
-                        await asyncio.sleep(0.01)  # Minimal UI update
+                    # Step 5: Channel Selection (replaces ChannelTimingAgent)
+                    step = 5
+                    yield {
+                        "event": "agent_start",
+                        "data": json.dumps({
+                            "agent_id": "channel_timing",
+                            "agent_name": "Channel & Timing",
+                            "step": step,
+                            "total_steps": total_steps
+                        })
+                    }
+                    await asyncio.sleep(0.01)
 
-                        agent_start = time.time()
-                        try:
-                            result = agent.analyze(state)
-                            state.update(result)
-                            duration_ms = int((time.time() - agent_start) * 1000)
+                    agent_start = time.time()
+                    try:
+                        hours_to_departure = state.get("reservation_data", {}).get("hours_to_departure", 72)
+                        channel_result = select_channel(
+                            customer=state.get("customer_data", {}),
+                            hours_to_departure=hours_to_departure
+                        )
+                        state["selected_channel"] = channel_result.get("channel", "")
+                        state["send_time"] = channel_result.get("send_time", "")
+                        state["backup_channel"] = channel_result.get("backup_channel")
 
-                            yield {
-                                "event": "agent_complete",
-                                "data": json.dumps({
-                                    "agent_id": agent_id,
-                                    "agent_name": config.get("name", agent_id),
-                                    "step": step,
-                                    "status": "complete",
-                                    "duration_ms": duration_ms,
-                                    "summary": extract_agent_summary(agent_id, state),
-                                    "reasoning": state.get(reasoning_key, ""),
-                                    "outputs": extract_agent_outputs(agent_id, state)
-                                })
-                            }
+                        channel_reasoning = generate_channel_reasoning(
+                            channel_result=channel_result,
+                            customer=state.get("customer_data", {}),
+                            hours_to_departure=hours_to_departure
+                        )
+                        state["channel_reasoning"] = channel_reasoning
+                        duration_ms = int((time.time() - agent_start) * 1000)
 
-                        except Exception as e:
-                            yield {
-                                "event": "agent_error",
-                                "data": json.dumps({"agent_id": agent_id, "step": step, "error": str(e)})
-                            }
-                            break
+                        yield {
+                            "event": "agent_complete",
+                            "data": json.dumps({
+                                "agent_id": "channel_timing",
+                                "agent_name": "Channel & Timing",
+                                "step": step,
+                                "status": "complete",
+                                "duration_ms": duration_ms,
+                                "summary": extract_agent_summary("channel_timing", state),
+                                "reasoning": channel_reasoning,
+                                "outputs": extract_agent_outputs("channel_timing", state)
+                            })
+                        }
+                    except Exception as e:
+                        yield {
+                            "event": "agent_error",
+                            "data": json.dumps({"agent_id": "channel_timing", "step": step, "error": str(e)})
+                        }
+
+                    # Step 6: Tracking Setup (replaces MeasurementLearningAgent)
+                    step = 6
+                    yield {
+                        "event": "agent_start",
+                        "data": json.dumps({
+                            "agent_id": "measurement",
+                            "agent_name": "Tracking Setup",
+                            "step": step,
+                            "total_steps": total_steps
+                        })
+                    }
+                    await asyncio.sleep(0.01)
+
+                    agent_start = time.time()
+                    try:
+                        tracking_result = setup_tracking(
+                            pnr=pnr_locator,
+                            offer_type=state.get("selected_offer", "")
+                        )
+                        state["experiment_group"] = tracking_result.get("experiment_group", "")
+                        state["tracking_id"] = tracking_result.get("tracking_id", "")
+
+                        measurement_reasoning = generate_tracking_reasoning(tracking_result)
+                        state["measurement_reasoning"] = measurement_reasoning
+                        duration_ms = int((time.time() - agent_start) * 1000)
+
+                        yield {
+                            "event": "agent_complete",
+                            "data": json.dumps({
+                                "agent_id": "measurement",
+                                "agent_name": "Tracking Setup",
+                                "step": step,
+                                "status": "complete",
+                                "duration_ms": duration_ms,
+                                "summary": extract_agent_summary("measurement", state),
+                                "reasoning": measurement_reasoning,
+                                "outputs": extract_agent_outputs("measurement", state)
+                            })
+                        }
+                    except Exception as e:
+                        yield {
+                            "event": "agent_error",
+                            "data": json.dumps({"agent_id": "measurement", "step": step, "error": str(e)})
+                        }
 
             elif state.get("customer_eligible", False) and not state.get("recommended_cabins"):
-                # Customer eligible but NO INVENTORY - flight agent blocked
+                # Customer eligible but NO INVENTORY
                 inventory_status = state.get("inventory_status", {})
                 flight_data = state.get("flight_data", {})
                 flight_nbr = flight_data.get("operat_flight_nbr", "Unknown")
 
-                # Build detailed inventory reason
                 cabin_details = []
-                for cabin, status in inventory_status.items():
-                    seats = status.get("available_seats", 0)
+                for cabin, inv_status in inventory_status.items():
+                    seats = inv_status.get("available_seats", 0)
                     cabin_details.append(f"{cabin}: {seats} seats")
 
                 inventory_reason = f"No upgrade inventory available on AA{flight_nbr}"
@@ -1052,14 +1197,12 @@ async def evaluate_pnr_stream(pnr_locator: str, execution_mode: str = "choreogra
 
                 state["suppression_reason"] = inventory_reason
 
-                # Skip offer orchestration and remaining agents
                 for skip_step, skip_id in enumerate(["offer_orchestration", "personalization", "channel_timing", "measurement"], step):
-                    skip_config = next((a for a in AGENT_CONFIG if a["id"] == skip_id), {})
                     yield {
                         "event": "agent_skip",
                         "data": json.dumps({
                             "agent_id": skip_id,
-                            "agent_name": skip_config.get("name", skip_id),
+                            "agent_name": skip_id.replace("_", " ").title(),
                             "step": skip_step,
                             "reason": "No available inventory"
                         })

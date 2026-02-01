@@ -66,13 +66,10 @@ from dataclasses import dataclass
 from langgraph.graph import StateGraph, END
 
 from .state import AgentState, OfferDecision, create_initial_state
-from .customer_intelligence import CustomerIntelligenceAgent
-from .flight_optimization import FlightOptimizationAgent
+from .prechecks import check_customer_eligibility, check_inventory_availability
+from .delivery import generate_message, select_channel, setup_tracking
 # ReWOO Pattern: Planner-Worker-Solver for Offer Orchestration
 from .offer_orchestration_rewoo import OfferOrchestrationReWOO as OfferOrchestrationAgent
-from .personalization import PersonalizationAgent
-from .channel_timing import ChannelTimingAgent
-from .measurement_learning import MeasurementLearningAgent
 
 from tools.data_tools import get_enriched_pnr
 from infrastructure.guardrails import (
@@ -232,12 +229,7 @@ def _create_fallback_result(node_name: str, error: Exception, attempts: int) -> 
 # =============================================================================
 
 # Initialize agents (singleton instances)
-customer_agent = CustomerIntelligenceAgent()
-flight_agent = FlightOptimizationAgent()
 offer_agent = OfferOrchestrationAgent()
-personalization_agent = PersonalizationAgent()
-channel_agent = ChannelTimingAgent()
-measurement_agent = MeasurementLearningAgent()
 
 
 async def load_data_mcp(pnr_locator: str) -> Dict[str, Any]:
@@ -323,8 +315,19 @@ def load_data(state: AgentState) -> Dict[str, Any]:
     fallback_on_failure=True,
 ))
 def run_customer_intelligence(state: AgentState) -> Dict[str, Any]:
-    """Run Customer Intelligence Agent with resilience."""
-    return customer_agent.analyze(state)
+    """Run Customer Intelligence pre-check with resilience."""
+    result = check_customer_eligibility(
+        state.get("customer_data", {}),
+        state.get("reservation_data"),
+        state.get("ml_scores"),
+    )
+    return {
+        "customer_eligible": result.get("customer_eligible", False),
+        "customer_segment": result.get("customer_segment", "unknown"),
+        "suppression_reason": result.get("suppression_reason"),
+        "customer_reasoning": result.get("customer_reasoning", ""),
+        "reasoning_trace": result.get("reasoning_trace", []),
+    }
 
 
 @resilient_node(NodeConfig(
@@ -334,8 +337,18 @@ def run_customer_intelligence(state: AgentState) -> Dict[str, Any]:
     fallback_on_failure=True,
 ))
 def run_flight_optimization(state: AgentState) -> Dict[str, Any]:
-    """Run Flight Optimization Agent with resilience."""
-    return flight_agent.analyze(state)
+    """Run Flight Optimization pre-check with resilience."""
+    result = check_inventory_availability(
+        state.get("flight_data", {}),
+        state.get("reservation_data", {}).get("max_bkd_cabin_cd", "Y"),
+    )
+    return {
+        "flight_priority": result.get("flight_priority", "low"),
+        "recommended_cabins": result.get("recommended_cabins", []),
+        "inventory_status": result.get("inventory_status", "unknown"),
+        "flight_reasoning": result.get("flight_reasoning", ""),
+        "reasoning_trace": result.get("reasoning_trace", []),
+    }
 
 
 @resilient_node(NodeConfig(
@@ -356,8 +369,21 @@ def run_offer_orchestration(state: AgentState) -> Dict[str, Any]:
     fallback_on_failure=True,
 ))
 def run_personalization(state: AgentState) -> Dict[str, Any]:
-    """Run Personalization Agent with resilience."""
-    return personalization_agent.analyze(state)
+    """Run Personalization message generation with resilience."""
+    result = generate_message(
+        state.get("customer_data", {}),
+        state.get("flight_data", {}),
+        state.get("selected_offer", ""),
+        state.get("offer_price", 0),
+    )
+    return {
+        "message_subject": result.get("message_subject", ""),
+        "message_body": result.get("message_body", ""),
+        "message_tone": result.get("message_tone", "professional"),
+        "personalization_elements": result.get("personalization_elements", []),
+        "personalization_reasoning": result.get("personalization_reasoning", ""),
+        "reasoning_trace": result.get("reasoning_trace", []),
+    }
 
 
 @resilient_node(NodeConfig(
@@ -367,8 +393,18 @@ def run_personalization(state: AgentState) -> Dict[str, Any]:
     fallback_on_failure=True,
 ))
 def run_channel_timing(state: AgentState) -> Dict[str, Any]:
-    """Run Channel & Timing Agent with resilience."""
-    return channel_agent.analyze(state)
+    """Run Channel selection with resilience."""
+    result = select_channel(
+        state.get("customer_data", {}),
+        state.get("reservation_data", {}).get("hours_to_departure", 72),
+    )
+    return {
+        "selected_channel": result.get("selected_channel", "email"),
+        "send_time": result.get("send_time", ""),
+        "backup_channel": result.get("backup_channel", ""),
+        "channel_reasoning": result.get("channel_reasoning", ""),
+        "reasoning_trace": result.get("reasoning_trace", []),
+    }
 
 
 @resilient_node(NodeConfig(
@@ -378,8 +414,17 @@ def run_channel_timing(state: AgentState) -> Dict[str, Any]:
     fallback_on_failure=True,
 ))
 def run_measurement(state: AgentState) -> Dict[str, Any]:
-    """Run Measurement & Learning Agent with resilience."""
-    return measurement_agent.analyze(state)
+    """Run Measurement tracking setup with resilience."""
+    result = setup_tracking(
+        state.get("pnr_locator", ""),
+        state.get("selected_offer", ""),
+    )
+    return {
+        "experiment_group": result.get("experiment_group", ""),
+        "tracking_id": result.get("tracking_id", ""),
+        "measurement_reasoning": result.get("measurement_reasoning", ""),
+        "reasoning_trace": result.get("reasoning_trace", []),
+    }
 
 
 def compile_final_decision(state: AgentState) -> Dict[str, Any]:

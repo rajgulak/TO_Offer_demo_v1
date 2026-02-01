@@ -15,8 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.workflow import run_offer_evaluation
 from agents.state import create_initial_state
-from agents.customer_intelligence import CustomerIntelligenceAgent
-from agents.flight_optimization import FlightOptimizationAgent
+from agents.prechecks import check_customer_eligibility, check_inventory_availability
 from agents.offer_orchestration import OfferOrchestrationAgent
 from tools.data_tools import get_enriched_pnr
 from tests.scenarios import GUARDRAILS, get_all_pnrs
@@ -82,12 +81,20 @@ class TestDiscountGuardrails:
         # Set urgent timing
         state["reservation_data"]["hours_to_departure"] = 20  # Urgent: +10% boost
 
-        # Run through agents
-        customer_agent = CustomerIntelligenceAgent()
-        state.update(customer_agent.analyze(state))
+        # Run through functions
+        eligible, suppression_reason, segment, details = check_customer_eligibility(
+            state["customer_data"], state.get("reservation_data"), state.get("ml_scores")
+        )
+        state.update({"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment})
 
-        flight_agent = FlightOptimizationAgent()
-        state.update(flight_agent.analyze(state))
+        has_inventory, recommended_cabins, inventory_status = check_inventory_availability(
+            state["flight_data"], state.get("reservation_data", {}).get("max_bkd_cabin_cd", "Y")
+        )
+        state.update({
+            "flight_priority": "high" if any(s.get("priority") == "high" for s in inventory_status.values()) else "medium" if recommended_cabins else "low",
+            "recommended_cabins": recommended_cabins,
+            "inventory_status": inventory_status,
+        })
 
         offer_agent = OfferOrchestrationAgent()
         result = offer_agent.analyze(state)
@@ -138,8 +145,10 @@ class TestSuppressionGuardrails:
             "complaint_reason": "Test suppression",
         }
 
-        customer_agent = CustomerIntelligenceAgent()
-        result = customer_agent.analyze(state)
+        eligible, suppression_reason, segment, details = check_customer_eligibility(
+            state["customer_data"], state.get("reservation_data"), state.get("ml_scores")
+        )
+        result = {"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment}
 
         assert result["customer_eligible"] == False, (
             "GUARDRAIL VIOLATION: Suppressed customer marked as eligible"
@@ -165,12 +174,20 @@ class TestTimingGuardrails:
         # Set to 5 hours before departure
         state["reservation_data"]["hours_to_departure"] = 5
 
-        # Run through offer agent
-        customer_agent = CustomerIntelligenceAgent()
-        state.update(customer_agent.analyze(state))
+        # Run through functions
+        eligible, suppression_reason, segment, details = check_customer_eligibility(
+            state["customer_data"], state.get("reservation_data"), state.get("ml_scores")
+        )
+        state.update({"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment})
 
-        flight_agent = FlightOptimizationAgent()
-        state.update(flight_agent.analyze(state))
+        has_inventory, recommended_cabins, inventory_status = check_inventory_availability(
+            state["flight_data"], state.get("reservation_data", {}).get("max_bkd_cabin_cd", "Y")
+        )
+        state.update({
+            "flight_priority": "high" if any(s.get("priority") == "high" for s in inventory_status.values()) else "medium" if recommended_cabins else "low",
+            "recommended_cabins": recommended_cabins,
+            "inventory_status": inventory_status,
+        })
 
         offer_agent = OfferOrchestrationAgent()
         result = offer_agent.analyze(state)
@@ -206,8 +223,10 @@ class TestConsentGuardrails:
             "sms": False,
         }
 
-        customer_agent = CustomerIntelligenceAgent()
-        result = customer_agent.analyze(state)
+        eligible, suppression_reason, segment, details = check_customer_eligibility(
+            state["customer_data"], state.get("reservation_data"), state.get("ml_scores")
+        )
+        result = {"customer_eligible": eligible, "suppression_reason": suppression_reason, "customer_segment": segment}
 
         assert result["customer_eligible"] == False, (
             "GUARDRAIL VIOLATION: Customer without consent marked eligible"
@@ -216,7 +235,7 @@ class TestConsentGuardrails:
 
     def test_channel_respects_consent(self):
         """Selected channel must have customer consent"""
-        from agents.channel_timing import ChannelTimingAgent
+        from agents.delivery import select_channel
 
         enriched = get_enriched_pnr("ABC123")
         state = create_initial_state("ABC123")
@@ -233,14 +252,16 @@ class TestConsentGuardrails:
             "sms": False,
         }
 
-        channel_agent = ChannelTimingAgent()
-        result = channel_agent.analyze(state)
+        result = select_channel(
+            state["customer_data"],
+            state.get("reservation_data", {}).get("hours_to_departure", 72)
+        )
 
-        selected = result.get("selected_channel", "").lower()
+        selected_channel = result.get("channel", "").lower()
 
         # Should select email since it's the only consented channel
-        assert selected == "email" or "email" in selected.lower(), (
-            f"GUARDRAIL VIOLATION: Selected '{selected}' but only email is consented"
+        assert selected_channel == "email" or "email" in selected_channel.lower(), (
+            f"GUARDRAIL VIOLATION: Selected '{selected_channel}' but only email is consented"
         )
 
 
